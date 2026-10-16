@@ -1,7 +1,8 @@
 // Screens: Garage (both cars), a car's page (Status · Fuel · History · Specs), Settings, Recycle bin.
 import { state, onChange, save, restore, saveMeta } from './store.js';
-import { live, carOdo, carItems, carLevel, fuelStats, economy, km, money, niceDate, monthYear, ymd } from './calc.js';
-import { $, $$, esc, ico, prefs, setPref, applyPrefs, carArt, carStyle, drums, lights, itemIcon, econ, econUnit, toast, carPhoto, SWATCHES, LEVEL_WORD, closeAll } from './ui.js';
+import { live, carOdo, carItems, carLevel, fuelStats, economy, km, niceDate, monthYear, ymd } from './calc.js';
+import { $, $$, esc, ico, prefs, setPref, applyPrefs, carArt, carStyle, drums, lights, itemIcon, econ, econUnit, toast, carPhoto, SWATCHES, LEVEL_WORD, closeAll, plate } from './ui.js';
+import { basicsItem } from './catalogue.js';
 import { fillSheet, logSheet, itemSheet, odoSheet, importSheet, addCarSheet } from './sheets.js';
 import { drawEconomy } from './chart.js';
 import { backupNow, maybeWeeklyBackup } from './backup.js';
@@ -53,7 +54,7 @@ function carCard(car) {
   return `<article class="car" style="${carStyle(car)}">
     <a class="hero" href="#/car/${car.id}/status" aria-label="Open the ${esc(car.name)}">${carArt(car)}
       ${car.photo ? '' : `<span class="addphoto">${ico('cam')} Add a photo in Specs</span>`}
-      <span class="name"><h2>${esc(car.name)}</h2><p>${[car.year, car.plate].filter(Boolean).map(esc).join(' · ')}</p></span></a>
+      <span class="name"><h2>${esc(car.name)}</h2><p>${car.year ? esc(car.year) + ' ' : ''}${plate(car.plate)}</p></span></a>
     <div class="carbody">
       <div class="readout">
         <button class="odo" data-odo="${car.id}" aria-label="Update odometer">${drums(odo.odo)}<span class="unit">km<small>${odo.date ? niceDate(odo.date) : ''}</small></span></button>
@@ -79,7 +80,7 @@ function carPage(id, tab) {
   const car = carOf(id), odo = carOdo(id), lv = carLevel(id);
   const body = { status: statusTab, fuel: fuelTab, history: historyTab, specs: specsTab }[tab] || statusTab;
   return `<div class="carpage" style="${carStyle(car)}">${topbar('Garage', '#/')}
-    <div class="hero">${carArt(car)}<span class="name"><h2>${esc(car.name)}</h2><p>${[car.year, car.make, car.plate].filter(Boolean).map(esc).join(' · ')}</p></span></div>
+    <div class="hero">${carArt(car)}<span class="name"><h2>${esc(car.name)}</h2><p>${[car.year, car.make].filter(Boolean).map(esc).join(' ')} ${plate(car.plate)}</p></span></div>
     <div class="carhead">
       <button class="odo" data-odo="${id}" aria-label="Update odometer">${drums(odo.odo)}<span class="unit">km<small>${odo.date ? niceDate(odo.date) : ''} · tap to update</small></span></button>
       <span class="pill ${lv.level}"><i></i>${lv.red ? `${lv.red} due now` : lv.amber ? `${lv.amber} coming due` : 'All good'}</span></div>
@@ -93,7 +94,7 @@ function statusTab(car) {
   const tracked = all.filter(i => i.st.level !== 'none'), records = all.filter(i => i.st.level === 'none');
   const hidden = live(state.items).filter(i => i.carId === car.id && i.hidden);
   return `<div class="split"><section class="panel"><h3>Jobs and checks</h3>
-      <p class="sub muted">Green is fine, amber is coming due, red is due now. Bars fill by distance or time, whichever is closer.</p>
+      <p class="sub muted">Green is fine, yellow is coming due, red is due now. Each bar fills by distance or time, whichever is closer.</p>
       <div class="items">${tracked.map(i => itemRow(i, true)).join('') || '<p class="muted">Nothing with a reminder yet.</p>'}</div></section>
     <div>${records.length ? `<section class="panel"><h3>Records only</h3><p class="sub muted">No reminder set. Tap one to add an interval.</p><div class="items">${records.map(i => itemRow(i)).join('')}</div></section>` : ''}
       <section class="panel" style="padding:14px 16px"><button class="btn ghost small" data-newitem="${car.id}">${ico('plus')} Add a job or check</button>
@@ -109,18 +110,15 @@ function fuelTab(car) {
       <div class="tile hero-tile"><div><span>Last tank</span><b>${econ(st.last?.l100)}<small>${econUnit()}</small></b></div><span>${st.last ? niceDate(st.last.date) : ''}</span></div>
       <div class="tile"><span>12-month average</span><b>${econ(st.avgYear)}</b></div>
       <div class="tile"><span>Best tank</span><b>${econ(st.best)}</b></div>
-      <div class="tile"><span>Last price</span><b>${st.ppl ? '$' + st.ppl.toFixed(2) : '–'}<small>/L</small></b></div>
       <div class="tile"><span>Driving</span><b>${st.kmMonth ? km(st.kmMonth) : '–'}<small>km/month</small></b></div>
-      <div class="tile"><span>Fuel, last 12 months</span><b>${st.spendYr ? '$' + km(st.spendYr) : '–'}</b></div>
-      <div class="tile"><span>Work, last 12 months</span><b>${st.workYr ? '$' + km(st.workYr) : '–'}</b></div>
     </div>
     <section class="panel"><h3>Economy, every tank</h3><p class="sub muted">${econUnit()}. ${prefs.unit === 'kml' ? 'Higher' : 'Lower'} is better. Tap a point for details.</p><div class="chart" id="chart"></div></section>
     <section class="panel"><h3>Fill-ups</h3><div class="rows">${show.map(f => fillRow(f, eco[f.id])).join('')}</div>
       ${fills.length > show.length ? `<p class="muted" style="padding:8px 4px">Older fill-ups are in History.</p>` : ''}</section>`;
 }
 const fillRow = (f, e) => `<button class="row" data-editfill="${f.id}"><span class="ic fuel">${ico('fuel')}</span>
-  <span class="grow"><span class="t">${(f.litres || 0).toFixed(2)} L${f.cost ? ' · ' + money(f.cost) : ''}${f.full ? '' : ' · part fill'}</span>
-  <span class="s">${niceDate(f.date)} · ${km(f.odo)} km${f.station ? ' · ' + esc(f.station) : ''}</span></span>
+  <span class="grow"><span class="t">${f.station ? esc(f.station) : (f.litres || 0).toFixed(1) + ' L'}${f.full ? '' : ' · part fill'}</span>
+  <span class="s">${niceDate(f.date)} · ${km(f.odo)} km${f.station ? ' · ' + (f.litres || 0).toFixed(1) + ' L' : ''}</span></span>
   <span class="r">${e ? econ(e.l100) + `<small class="muted"> ${econUnit()}</small>` : ''}</span></button>`;
 
 let histFilter = 'all';
@@ -135,10 +133,12 @@ function historyTab(car) {
     const y = x.date.slice(0, 4), head = y !== yr ? `${yr ? '</div></section>' : ''}<section class="panel"><div class="yr">${y}</div><div class="rows">` : ''; yr = y;
     if (x.t === 'fill') return head + fillRow(x.f, eco[x.f.id]);
     const l = x.l, names = [...(l.items || []).map(i => name[i] || 'Removed item'), l.title].filter(Boolean);
-    const res = Object.entries(l.results || {}).map(([k, v]) => `<span class="flag ${v === 'attention' ? 'att' : 'ok'}">${esc(name[k] || '')}: ${v === 'attention' ? 'needs attention' : 'OK'}</span>`).join('');
+    const res = Object.entries(l.results || {}).map(([k, v]) => l.checks?.[k] && v === 'attention'
+      ? Object.entries(l.checks[k]).filter(([, r]) => r === 'attention').map(([c]) => `<span class="flag att">${esc(c)}: needs attention</span>`).join('')
+      : `<span class="flag ${v === 'attention' ? 'att' : 'ok'}">${esc(name[k] || '')}: ${v === 'attention' ? 'needs attention' : 'OK'}</span>`).join('');
     return head + `<button class="row" data-editlog="${l.id}"><span class="ic">${ico(itemIcon({ name: names[0] || '', kind: '' }))}</span>
       <span class="grow"><span class="t">${esc(names.join(', '))}</span><span class="s">${niceDate(l.date)} · ${km(l.odo)} km${l.where ? ' · ' + esc(l.where) : ''}</span>
-      ${res ? `<div>${res}</div>` : ''}${l.notes ? `<div class="notes">${esc(l.notes)}</div>` : ''}</span><span class="r">${money(l.cost)}</span></button>`;
+      ${res ? `<div>${res}</div>` : ''}${l.notes ? `<div class="notes">${esc(l.notes)}</div>` : ''}</span></button>`;
   }).join('') + (yr ? '</div></section>' : '');
   return `<div class="filters">${[['all', 'Everything'], ['work', 'Work'], ['fuel', 'Fuel']].map(([k, l]) => `<button data-hf="${k}" aria-pressed="${histFilter === k}">${l}</button>`).join('')}
     <button data-print="${car.id}" style="margin-left:auto">${ico('print')} Service history</button></div>
@@ -261,7 +261,16 @@ function bind() {
 }
 
 /* ---------- start ---------- */
-let launched = false, backupTried = false;
+let launched = false, backupTried = false, migrated = false;
+/** Every car gets the Monthly basics check; the earlier stand-alone tyre-pressure check is retired if unused. */
+function migrate() {
+  for (const c of live(state.cars)) {
+    const b = basicsItem(c.id);
+    if (!state.items.some(i => i.id === b.id)) save('items', b);
+    const tp = state.items.find(i => i.id === c.id.replace('c-', 'i-') + '-tyre-pressures' && !i.hidden && !i.deleted);
+    if (tp && tp.source === 'GraytCars' && !state.logs.some(l => l.items?.includes(tp.id))) save('items', { id: tp.id, hidden: true });
+  }
+}
 export function startApp({ launch } = {}) {
   applyPrefs();
   bind();
@@ -270,6 +279,7 @@ export function startApp({ launch } = {}) {
   onChange(() => { const a = document.activeElement; if (a && main().contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; render();
     if (!launched && launch && state.ready.cars && state.ready.fills) { launched = true; const c = carOf(launch.fill || launch.log); if (c) (launch.fill ? fillSheet : logSheet)(c.id); }
     if (!backupTried && state.ready.meta && live(state.cars).length) { backupTried = true; maybeWeeklyBackup(); }
+    if (!migrated && state.ready.items && state.ready.logs && state.ready.cars) { migrated = true; migrate(); }
   });
   let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (route().tab === 'fuel') render(); }, 200); });
   render();

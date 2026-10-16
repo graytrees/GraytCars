@@ -133,7 +133,7 @@ export function economy(carId) {
       const dist = x.odo - prevFull.odo;
       if (!broken && dist > 20 && acc > 0) {
         const l100 = acc / dist * 100;
-        if (l100 > 2 && l100 < 40) out.push({ id: x.id, date: x.date, odo: x.odo, l100, dist, litres: acc, cost: x.cost, ppl: x.cost && x.litres ? x.cost / x.litres : null });
+        if (l100 > 2 && l100 < 40) out.push({ id: x.id, date: x.date, odo: x.odo, l100, dist, litres: acc, station: x.station });
       }
       prevFull = x; acc = 0; broken = false;
     }
@@ -147,11 +147,9 @@ export function fuelStats(carId) {
   const avg = list => { const L = list.reduce((s, x) => s + x.litres, 0), D = list.reduce((s, x) => s + x.dist, 0); return D ? L / D * 100 : null; };
   const fills = live(state.fills).filter(x => x.carId === carId);
   const lastFill = fills.sort((a, b) => b.odo - a.odo)[0];
-  const spendYr = fills.filter(x => x.date >= from).reduce((s, x) => s + (x.cost || 0), 0);
-  const workYr = live(state.logs).filter(x => x.carId === carId && x.date >= from).reduce((s, x) => s + (Number(x.cost) || 0), 0);
   const rate = kmPerDay(carId);
   return { series: e, last: e[e.length - 1] || null, avgYear: avg(yr.length >= 3 ? yr : e), avgAll: avg(e), best: e.length ? Math.min(...e.map(x => x.l100)) : null,
-    lastFill, ppl: lastFill?.cost && lastFill?.litres ? lastFill.cost / lastFill.litres : null, spendYr, workYr, kmMonth: rate ? rate * 30.44 : null };
+    lastFill, kmMonth: rate ? rate * 30.44 : null };
 }
 export function maxLitres(carId) {
   const l = live(state.fills).filter(x => x.carId === carId).map(x => x.litres || 0);

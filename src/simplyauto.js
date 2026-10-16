@@ -1,3 +1,4 @@
+import { basicsItem } from './catalogue.js';
 // Reads a Simply Auto backup (the "Simply_Fleet_Backup_….zip", or its three CSV files)
 // and turns it into GraytCars records. Pure functions – nothing is saved here.
 //
@@ -6,7 +7,7 @@
 //   Services.csv (type 1)      → items with their km / day intervals and "last done" reading
 //   Fuel_Log.csv  type 0       → fills  (duplicate rows Simply Auto sometimes creates are dropped)
 //   Fuel_Log.csv  type 1 / 2   → logs   (services and expenses)
-// Locations (latitude/longitude) are not imported.
+// Fill-up locations (latitude/longitude) come across so servos can be recognised later. Costs are not imported.
 
 export function parseCsv(text) {
   const rows = []; let row = [], f = '', q = false;
@@ -71,9 +72,9 @@ export function convert({ vehicles, fuel, services }) {
     if (r['Record Type'] !== '0') { workRows.push({ ...r, carId, date }); continue; }
     const key = [carId, r.Odometer, r.Qty, r['Total Cost'], date].join('|');
     if (seen.has(key)) continue; seen.add(key);
-    fills.push({ id: 'f-sa' + r['Row ID'], carId, date, odo: num(r.Odometer), litres: num(r.Qty), cost: num(r['Total Cost']) || null,
+    fills.push({ id: 'f-sa' + r['Row ID'], carId, date, odo: num(r.Odometer), litres: num(r.Qty),
       full: r['Partial Tank'] !== '1', missed: r['Missed Fill Up'] === '1', station: r['Filling Station'] && r['Filling Station'] !== 'null' ? titleCaseWords(r['Filling Station']) : '',
-      notes: notes(r.Notes), source: 'Simply Auto' });
+      notes: notes(r.Notes), lat: num(r.Latitude) ? +num(r.Latitude).toFixed(5) : null, lng: num(r.Longitude) ? +num(r.Longitude).toFixed(5) : null, source: 'Simply Auto' });
   }
 
   // ---- items: anything with an interval, or that has history ----
@@ -103,7 +104,7 @@ export function convert({ vehicles, fuel, services }) {
       items.push(it); itemOf[r.carId + '|' + desc.toLowerCase()] = it;
     }
     logs.push({ id: 'l-sa' + r['Row ID'], carId: r.carId, date: r.date, odo: num(r.Odometer), items: it ? [it.id] : [],
-      title: it ? '' : niceName(desc), cost: num(r['Total Cost']) || null, where: r['Filling Station'] && r['Filling Station'] !== 'null' ? titleCaseWords(r['Filling Station']) : '',
+      title: it ? '' : niceName(desc), where: r['Filling Station'] && r['Filling Station'] !== 'null' ? titleCaseWords(r['Filling Station']) : '',
       notes: notes(r.Notes), results: {}, source: 'Simply Auto' });
   }
 
@@ -116,9 +117,9 @@ export function convert({ vehicles, fuel, services }) {
     if (match && !match.items.includes(it.id)) { match.items.push(it.id); match.title = ''; }
   }
 
-  // A monthly quick check Simply Auto didn't have (shows up at the servo)
+  // A monthly once-over Simply Auto didn't have (shows up at the servo)
   for (const c of cars) {
-    items.push({ id: c.id.replace('c-', 'i-') + '-tyre-pressures', carId: c.id, name: 'Tyre pressures', kind: 'check', everyMonths: 1, everyKm: null, includes: [], source: 'GraytCars' });
+    items.push(basicsItem(c.id));
   }
   // Part numbers noted in Simply Auto → the car's specs card
   for (const l of logs) {

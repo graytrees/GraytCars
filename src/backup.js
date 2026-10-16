@@ -17,12 +17,12 @@ export async function backupNow(interactive = false) {
   const item = Object.fromEntries(data.items.map(i => [i.id, i.name]));
   // car photos are already inside the JSON; keep the CSVs small and readable
   await upload(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }), `graytcars-backup-${day}.json`, 'Backups', interactive);
-  const fuel = [['Car', 'Date', 'Odometer (km)', 'Litres', 'Cost ($)', 'Full tank', 'Station', 'Notes', 'Deleted'],
-    ...data.fills.sort((a, b) => a.date.localeCompare(b.date)).map(f => [car[f.carId], f.date, f.odo, f.litres, f.cost, f.full ? 'yes' : 'partial', f.station, f.notes, f.deleted ? 'yes' : ''])];
+  const fuel = [['Car', 'Date', 'Odometer (km)', 'Litres', 'Full tank', 'Station', 'Latitude', 'Longitude', 'Notes', 'Deleted'],
+    ...data.fills.sort((a, b) => a.date.localeCompare(b.date)).map(f => [car[f.carId], f.date, f.odo, f.litres, f.full ? 'yes' : 'partial', f.station, f.lat ?? '', f.lng ?? '', f.notes, f.deleted ? 'yes' : ''])];
   await upload(new Blob([csv(fuel)], { type: 'text/csv' }), `graytcars-fuel-${day}.csv`, 'Backups', interactive);
-  const work = [['Car', 'Date', 'Odometer (km)', 'Work done', 'Result', 'Cost ($)', 'Where', 'Notes', 'Deleted'],
+  const work = [['Car', 'Date', 'Odometer (km)', 'Work done', 'Result', 'Where', 'Notes', 'Deleted'],
     ...data.logs.sort((a, b) => a.date.localeCompare(b.date)).map(l => [car[l.carId], l.date, l.odo, [...(l.items || []).map(i => item[i] || i), l.title].filter(Boolean),
-      Object.entries(l.results || {}).map(([k, v]) => `${item[k] || k}: ${v === 'attention' ? 'needs attention' : 'OK'}`), l.cost, l.where, l.notes, l.deleted ? 'yes' : ''])];
+      Object.entries(l.results || {}).map(([k, v]) => `${item[k] || k}: ${v === 'attention' ? 'needs attention' : 'OK'}`), l.where, l.notes, l.deleted ? 'yes' : ''])];
   await upload(new Blob([csv(work)], { type: 'text/csv' }), `graytcars-work-${day}.csv`, 'Backups', interactive);
   await saveMeta('backup', { lastMs: Date.now(), lastDay: day, fills: data.fills.length, logs: data.logs.length });
   return day;

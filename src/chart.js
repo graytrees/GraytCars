@@ -1,7 +1,7 @@
 // Fuel economy over time: one line, the 12-month average as a dashed reference,
 // tap or hover any point for the details.
 import { prefs, econ, econUnit, esc } from './ui.js';
-import { parseDay, niceDate, km, money } from './calc.js';
+import { parseDay, niceDate, km } from './calc.js';
 
 export function drawEconomy(el, series, avg) {
   if (series.length < 2) { el.innerHTML = `<p class="muted" style="padding:8px 4px">The chart appears after a couple of full-tank fill-ups.</p>`; return; }
@@ -38,7 +38,7 @@ export function drawEconomy(el, series, avg) {
     cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('visibility', 'visible');
     hot.setAttribute('cx', px); hot.setAttribute('cy', py); hot.setAttribute('visibility', 'visible');
     tip.hidden = false; tip.style.left = (px * r.width / W) + 'px'; tip.style.top = (py * r.height / H) + 'px';
-    tip.innerHTML = `<b>${econ(s.l100)} ${econUnit()}</b><br>${niceDate(s.date)} · ${km(s.dist)} km${s.ppl ? ' · ' + money(s.ppl) + '/L' : ''}`;
+    tip.innerHTML = `<b>${econ(s.l100)} ${econUnit()}</b><br>${niceDate(s.date)} · ${km(s.dist)} km${s.station ? ' · ' + esc(s.station) : ''}`;
   };
   const hide = () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); hot.setAttribute('visibility', 'hidden'); };
   const hit = el.querySelector('.hit');

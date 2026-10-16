@@ -35,26 +35,30 @@ export function drums(odo) {
   return `<span class="drums" aria-label="${km(odo)} kilometres">${[...s].map((d, i) => `<b class="${i < lead ? 'lead' : ''}" aria-hidden="true">${d}</b>`).join('')}</span>`;
 }
 
-/* ---------- shift-light bar ---------- */
+/* ---------- progress bar: green → yellow → red as it nears due ---------- */
 export function lights(st) {
   if (!st || st.level === 'none') return '';
-  const lit = st.level === 'unknown' ? 0 : Math.max(1, Math.round(Math.min(1, st.frac) * 20));
-  return `<span class="lights ${st.level}" aria-hidden="true">${Array.from({ length: 20 }, (_, i) => `<span class="${i < lit ? 'on' : ''}"></span>`).join('')}</span>`;
+  if (st.level === 'unknown') return `<span class="meter unknown" aria-hidden="true"></span>`;
+  const p = Math.max(2, Math.min(100, Math.round(st.frac * 100)));
+  return `<span class="meter ${st.frac >= 1 ? 'over' : ''}" style="--p:${p}%" aria-hidden="true"><i></i></span>`;
 }
 export const LEVEL_WORD = { red: 'Due now', amber: 'Coming due', green: 'All good', unknown: 'Not recorded', none: 'No reminder' };
 
+/* icons in the style of dashboard warning lights */
 export function itemIcon(it) {
-  const n = it.name.toLowerCase();
-  if (/oil/.test(n)) return 'drop';
-  if (/tyre|tire|wheel|alignment|pressure/.test(n)) return 'tyre';
-  if (/battery/.test(n)) return 'battery';
-  if (/filter|drain/.test(n)) return 'filter';
-  if (/brake/.test(n)) return 'disc';
-  if (/belt|part/.test(n)) return 'tag';
-  if (it.kind === 'service' || /service/.test(n)) return 'wrench';
-  if (it.kind === 'check') return 'gauge';
-  return 'wrench';
+  const n = (it.name || '').toLowerCase();
+  const rules = [
+    [/basic|monthly/, 'basics'], [/pressure/, 'tpms'], [/rotat/, 'rotate'], [/align/, 'align'],
+    [/catch ?can|separator/, 'catchcan'], [/water|pre-?filter|fuel filter|drain/, 'water'],
+    [/wiper/, 'wiper'], [/brake/, 'brake'], [/coolant|radiator/, 'coolant'], [/light|globe|bulb/, 'lights'],
+    [/belt/, 'belt'], [/spark|plug/, 'plug'], [/battery/, 'battery'], [/filter|pollen/, 'filter'],
+    [/oil/, 'drop'], [/tyre|tire|wheel/, 'tyre'], [/service/, 'wrench'],
+  ];
+  for (const [re, ic] of rules) if (re.test(n)) return ic;
+  return it.kind === 'check' ? 'gauge' : 'wrench';
 }
+/** rego in a number-plate style */
+export const plate = txt => txt ? `<span class="plate">${esc(txt)}</span>` : '';
 
 /* ---------- sheets (work with the phone's back button) ---------- */
 let open = [], skipPop = 0;
@@ -139,4 +143,4 @@ export function darkenForText(r, g, b) {
   }
   return '#333333';
 }
-export const SWATCHES = [['Race Red', '#C8102E'], ['Ford blue', '#1C5BC4'], ['Deep navy', '#1B2F55'], ['Graphite', '#3F4752'], ['Copper', '#9A3F1C'], ['Bronze', '#7A4E22'], ['Forest', '#2F5D3A'], ['Orange', '#B44A00'], ['Purple', '#5B3A86']];
+export const SWATCHES = [['Race Red', '#C8102E'], ['Ford blue', '#1C5BC4'], ['Deep navy', '#1B2F55'], ['Graphite', '#3F4752'], ['Copper orange', '#D4561A'], ['Bronze', '#7A4E22'], ['Forest', '#2F5D3A'], ['Purple', '#5B3A86']];

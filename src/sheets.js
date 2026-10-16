@@ -1,9 +1,11 @@
 // The pop-up screens: fill-up, log work, an item's details, odometer, import, add a car.
 // Every one shows the car's photo and paint colour across the top, so it's obvious which car you're on.
 import { state, save, saveMany, remove, newId, onChange } from './store.js';
-import { live, carOdo, carItems, status, itemHistory, checkReading, economy, fuelStats, km, money, niceDate, ymd, addMonths } from './calc.js';
-import { $, $$, esc, ico, sheet, toast, carThumb, carStyle, lights, itemIcon, econ, econUnit, LEVEL_WORD } from './ui.js';
+import { live, carOdo, carItems, status, itemHistory, checkReading, economy, fuelStats, km, niceDate, ymd, addMonths } from './calc.js';
+import { $, $$, esc, ico, sheet, toast, carThumb, carStyle, lights, itemIcon, econ, econUnit, LEVEL_WORD, plate } from './ui.js';
+import { SUGGESTIONS } from './catalogue.js';
 import { readFiles } from './simplyauto.js';
+import { detectStation } from './station.js';
 
 const cars = () => live(state.cars).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 const carOf = id => state.cars.find(c => c.id === id);
@@ -14,7 +16,7 @@ function band(car, kind, { switchable = true, plain = false } = {}) {
   const other = others[0];
   return `<div class="band ${plain ? 'plain' : ''}">
     <div class="ph">${carThumb(car)}</div>
-    <div class="who"><small>${esc(kind)}</small><strong>${esc(car.name)}</strong></div>
+    <div class="who"><small>${esc(kind)}${plain ? '' : plate(car.plate)}</small><strong>${esc(car.name)}</strong></div>
     ${switchable && other ? `<button class="switch" data-switch="${other.id}" style="--other:${other.colour}" aria-label="Switch to the ${esc(other.name)}"><span class="dot"></span>${esc(other.name)}</button>` : ''}
     <button class="iconbtn x" data-close aria-label="Close">${ico('x')}</button></div>`;
 }
@@ -45,8 +47,9 @@ function rightCar(s, car, warn) {
 /* =============== FILL UP =============== */
 export function fillSheet(carId, existing = null) {
   let car = carOf(carId);
-  const f = existing ? { ...existing } : { carId, date: ymd(), odo: '', litres: '', cost: '', full: true, missed: false, station: '', notes: '' };
+  const f = existing ? { ...existing } : { carId, date: ymd(), odo: '', litres: '', full: true, missed: false, station: '', notes: '', lat: null, lng: null };
   const s = sheet('', { full: true, style: carStyle(car), label: 'Fill up' });
+  let detectMsg = existing ? '' : 'Finding the servo…', typedStation = !!existing;
   const form = () => {
     car = carOf(f.carId);
     s.el.style.cssText = carStyle(car);
@@ -56,31 +59,37 @@ export function fillSheet(carId, existing = null) {
       <label class="field"><span>Odometer (km)</span>
         <input class="big" id="odo" inputmode="numeric" autocomplete="off" value="${esc(f.odo)}" placeholder="${cur.odo ? km(cur.odo) : ''}">
         <span class="hint">${cur.odo ? `Last reading ${km(cur.odo)} km${cur.date ? ', ' + niceDate(cur.date) : ''}` : 'First reading for this car'}</span></label>
-      <div class="pair">
-        <label class="field"><span>Litres</span><input class="big" id="litres" inputmode="decimal" autocomplete="off" value="${esc(f.litres)}"></label>
-        <label class="field"><span>Total cost ($)</span><input class="big" id="cost" inputmode="decimal" autocomplete="off" value="${esc(f.cost ?? '')}"></label>
-      </div>
-      <p class="hint muted" id="ppl" style="margin:-8px 0 0"></p>
+      <label class="field"><span>Litres</span><input class="big" id="litres" inputmode="decimal" autocomplete="off" value="${esc(f.litres)}"></label>
+      <label class="field"><span>Servo</span><input id="station" list="stations" value="${esc(f.station)}" placeholder="e.g. BP Brendale"><datalist id="stations">${stations().map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+        <span class="detect" id="detect">${detectMsg ? ico('pin') + ' ' + esc(detectMsg) : ''}</span></label>
       <label class="toggle"><span><b>Filled to the top</b><br><span class="muted" style="font-size:.88em">Turn off for a part fill</span></span><input type="checkbox" id="full" ${f.full ? 'checked' : ''}></label>
-      <details class="extra" ${f.station || f.notes || f.missed || existing ? 'open' : ''}><summary>Date, servo and notes</summary>
+      <details class="extra" ${f.notes || f.missed || existing ? 'open' : ''}><summary>Date and notes</summary>
         <div class="form" style="padding:0">
           <label class="field"><span>Date</span><input type="date" id="date" value="${f.date}" max="${ymd()}"></label>
-          <label class="field"><span>Servo</span><input id="station" list="stations" value="${esc(f.station)}" placeholder="e.g. Liberty Kallangur"><datalist id="stations">${stations().map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
           <label class="field"><span>Notes</span><textarea id="notes" rows="2">${esc(f.notes)}</textarea></label>
           <label class="toggle"><span><b>I missed logging a fill before this one</b><br><span class="muted" style="font-size:.88em">Skips the economy figure for this fill</span></span><input type="checkbox" id="missed" ${f.missed ? 'checked' : ''}></label>
+          ${f.lat != null ? `<a class="more" href="https://www.google.com/maps/search/?api=1&query=${f.lat},${f.lng}" target="_blank" rel="noopener">${ico('pin')} Show on map</a>` : ''}
         </div></details>
       <p class="err" id="err" role="alert"></p>
     </div>
-    <div class="foot">${existing ? `<button class="btn danger" data-del style="flex:0 0 auto">${ico('trash')}</button>` : ''}<button class="btn paint" data-save>${ico('fuel')} Save fill-up</button></div>`);
-    const ppl = () => { const l = numVal($('#litres', s.el).value), c = numVal($('#cost', s.el).value); $('#ppl', s.el).textContent = l && c ? `${money(c / l)} per litre` : ''; };
-    $('#litres', s.el).oninput = ppl; $('#cost', s.el).oninput = ppl; ppl();
+    <div class="foot">${existing ? `<button class="btn danger" data-del style="flex:0 0 auto" aria-label="Delete">${ico('trash')}</button>` : ''}<button class="btn paint" data-save>${ico('fuel')} Save fill-up</button></div>`);
+    $('#station', s.el).oninput = () => { typedStation = true; };
     if (!existing) setTimeout(() => $('#odo', s.el)?.focus(), 250);
   };
   const read = () => {
     const g = id => $('#' + id, s.el);
-    Object.assign(f, { odo: g('odo').value, litres: g('litres').value, cost: g('cost').value, full: g('full').checked,
+    Object.assign(f, { odo: g('odo').value, litres: g('litres').value, full: g('full').checked,
       date: g('date').value || ymd(), station: g('station').value.trim(), notes: g('notes').value.trim(), missed: g('missed').checked });
   };
+  if (!existing) {
+    detectStation().then(({ pos, name }) => {
+      f.lat = pos.lat; f.lng = pos.lng;
+      const el = $('#detect', s.el), inp = $('#station', s.el);
+      if (name && inp && !typedStation && !inp.value) { inp.value = name; f.station = name; }
+      detectMsg = name ? `Found ${name}` : 'Location saved. Type the servo name.';
+      if (el) el.innerHTML = ico('pin') + ' ' + esc(detectMsg);
+    }).catch(() => { detectMsg = ''; const el = $('#detect', s.el); if (el) el.textContent = ''; });
+  }
   s.el.onclick = async e => {
     if (e.target.closest('[data-close]')) return s.close();
     const sw = e.target.closest('[data-switch]');
@@ -88,7 +97,7 @@ export function fillSheet(carId, existing = null) {
     if (e.target.closest('[data-del]')) { await remove('fills', existing.id); toast('Fill-up moved to the recycle bin'); return s.close(); }
     if (!e.target.closest('[data-save]')) return;
     read();
-    const odo = numVal(f.odo), litres = numVal(f.litres), cost = numVal(f.cost);
+    const odo = numVal(f.odo), litres = numVal(f.litres);
     const err = m => { $('#err', s.el).textContent = m; };
     if (!odo) return err('Enter the odometer reading.');
     if (!litres) return err('Enter how many litres went in.');
@@ -100,8 +109,8 @@ export function fillSheet(carId, existing = null) {
         if (v === 'switch') { f.carId = warn.otherCar.id; }
       }
     }
-    const rec = { ...(existing || {}), carId: f.carId, date: f.date, odo, litres, cost, full: f.full, missed: f.missed, station: f.station, notes: f.notes };
-    delete rec.revisions;
+    const rec = { ...(existing || {}), carId: f.carId, date: f.date, odo, litres, full: f.full, missed: f.missed, station: f.station, notes: f.notes, lat: f.lat ?? null, lng: f.lng ?? null };
+    delete rec.revisions; delete rec.cost;
     const id = await save('fills', rec);
     if (existing) { toast('Fill-up updated'); return s.close(); }
     afterFill(s, f.carId, id);
@@ -156,17 +165,21 @@ function quickRow(i) {
 async function quickAction(btn, carId) {
   const id = btn.dataset.id;
   const cur = carOdo(carId);
-  await save('logs', { id: newId('l'), carId, date: ymd(), odo: cur.odo, items: [id], results: { [id]: 'ok' }, title: '', cost: null, where: '', notes: '' });
+  const it = state.items.find(x => x.id === id);
+  const checks = it?.checklist?.length ? { [id]: Object.fromEntries(it.checklist.map(c => [c, 'ok'])) } : {};
+  await save('logs', { id: newId('l'), carId, date: ymd(), odo: cur.odo, items: [id], results: { [id]: 'ok' }, checks, title: '', where: '', notes: '' });
   const row = btn.closest('[data-row]');
   row.querySelector('.act').innerHTML = `<span class="chipbtn done">${ico('check')} Logged</span>`;
   row.querySelector('.tx').textContent = 'Checked today';
 }
 
+const seg = (key, v, short = key.includes('|')) => `<span class="seg"><button class="ok" data-res="${key}" data-v="ok" aria-pressed="${v !== 'attention'}">OK</button><button class="att" data-res="${key}" data-v="attention" aria-pressed="${v === 'attention'}" aria-label="Needs attention">${short ? 'Fix' : 'Needs attention'}</button></span>`;
+
 /* =============== LOG WORK =============== */
 export function logSheet(carId, { items = [], log = null } = {}) {
   let car = carOf(carId);
-  const L = log ? { ...log, items: [...(log.items || [])], results: { ...(log.results || {}) } }
-    : { carId, date: ymd(), odo: carOdo(carId).odo || '', items: [...items], results: {}, title: '', cost: '', where: '', notes: '' };
+  const L = log ? { ...log, items: [...(log.items || [])], results: { ...(log.results || {}) }, checks: JSON.parse(JSON.stringify(log.checks || {})) }
+    : { carId, date: ymd(), odo: carOdo(carId).odo || '', items: [...items], results: {}, checks: {}, title: '', where: '', notes: '' };
   for (const id of L.items) { const it = state.items.find(x => x.id === id); if (it?.kind === 'check' && !L.results[id]) L.results[id] = 'ok'; }
   const s = sheet('', { full: true, style: carStyle(car), label: 'Log work' });
   let showOther = !!L.title;
@@ -183,18 +196,15 @@ export function logSheet(carId, { items = [], log = null } = {}) {
         ${sel.some(i => i.kind === 'service' && i.includes?.length) ? `<span class="hint">A service also ticks the jobs it includes. Untick any that weren't done.</span>` : ''}
       </div>
       ${showOther ? `<label class="field"><span>Something else</span><input id="title" value="${esc(L.title)}" placeholder="e.g. Replaced wiper blades"></label>` : ''}
-      ${checks.length ? `<div class="field"><span>How was it?</span>${checks.map(i => `<div class="result"><b>${esc(i.name)}</b><span class="seg">
-          <button class="ok" data-res="${i.id}" data-v="ok" aria-pressed="${L.results[i.id] !== 'attention'}">OK</button>
-          <button class="att" data-res="${i.id}" data-v="attention" aria-pressed="${L.results[i.id] === 'attention'}">Needs attention</button></span></div>`).join('')}</div>` : ''}
+      ${checks.length ? `<div class="field"><span>How was it?</span>${checks.map(i => i.checklist?.length
+        ? `<div class="result" style="flex-direction:column;align-items:stretch"><b>${esc(i.name)}</b><div class="subchecks">${i.checklist.map((c, n) => `<div class="result"><b>${esc(c)}</b>${seg(i.id + '|' + n, (L.checks[i.id] || {})[c])}</div>`).join('')}</div></div>`
+        : `<div class="result"><b>${esc(i.name)}</b>${seg(i.id, L.results[i.id])}</div>`).join('')}</div>` : ''}
       <label class="field"><span>Notes</span><textarea id="notes" rows="3" placeholder="e.g. Castrol Edge 5W-50, 8.8 L. Front pads about 60%.">${esc(L.notes)}</textarea></label>
       <div class="pair">
         <label class="field"><span>Odometer (km)</span><input class="big" id="odo" inputmode="numeric" value="${esc(L.odo)}"></label>
         <label class="field"><span>Date</span><input type="date" id="date" value="${L.date}" max="${ymd()}" style="min-height:62px"></label>
       </div>
-      <div class="pair">
-        <label class="field"><span>Cost ($)</span><input id="cost" inputmode="decimal" value="${esc(L.cost ?? '')}" placeholder="optional"></label>
-        <label class="field"><span>Where</span><input id="where" list="places" value="${esc(L.where)}" placeholder="Home, Brendale Auto…"><datalist id="places">${['Home', ...places()].map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
-      </div>
+      <label class="field"><span>Where</span><input id="where" list="places" value="${esc(L.where)}" placeholder="Home, Brendale Auto…"><datalist id="places">${['Home', ...places()].map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
       <p class="err" id="err" role="alert"></p>
     </div>
     <div class="foot">${log ? `<button class="btn danger" data-del style="flex:0 0 auto" aria-label="Delete">${ico('trash')}</button>` : ''}<button class="btn paint" data-save>${ico('check')} Save</button></div>`);
@@ -202,7 +212,7 @@ export function logSheet(carId, { items = [], log = null } = {}) {
   const read = () => {
     const g = id => $('#' + id, s.el);
     L.notes = g('notes').value.trim(); L.odo = g('odo').value; L.date = g('date').value || ymd();
-    L.cost = g('cost').value; L.where = g('where').value.trim();
+    L.where = g('where').value.trim();
     if (g('title')) L.title = g('title').value.trim();
   };
   s.el.onclick = async e => {
@@ -218,7 +228,12 @@ export function logSheet(carId, { items = [], log = null } = {}) {
     }
     if (e.target.closest('[data-other]')) { read(); showOther = !showOther; if (!showOther) L.title = ''; form(); if (showOther) $('#title', s.el)?.focus(); return; }
     const r = e.target.closest('[data-res]');
-    if (r) { read(); L.results[r.dataset.res] = r.dataset.v; return form(); }
+    if (r) {
+      read(); const [id, n] = r.dataset.res.split('|');
+      if (n != null) { const it = state.items.find(x => x.id === id); (L.checks[id] ||= {})[it.checklist[+n]] = r.dataset.v; L.results[id] = Object.values(L.checks[id]).includes('attention') ? 'attention' : 'ok'; }
+      else L.results[id] = r.dataset.v;
+      return form();
+    }
     if (e.target.closest('[data-del]')) { await remove('logs', log.id); toast('Entry moved to the recycle bin'); return s.close(); }
     if (!e.target.closest('[data-save]')) return;
     read();
@@ -234,7 +249,10 @@ export function logSheet(carId, { items = [], log = null } = {}) {
       }
     }
     const results = Object.fromEntries(Object.entries(L.results).filter(([k]) => L.items.includes(k) && state.items.find(x => x.id === k)?.kind === 'check'));
-    const rec = { ...(log || {}), id: log?.id || newId('l'), carId: L.carId, date: L.date, odo, items: L.items, results, title: L.title, cost: numVal(L.cost), where: L.where, notes: L.notes };
+    const checks = {};
+    for (const id of L.items) { const it = state.items.find(x => x.id === id); if (it?.checklist?.length) checks[id] = Object.fromEntries(it.checklist.map(c => [c, (L.checks[id] || {})[c] || 'ok'])); }
+    const rec = { ...(log || {}), id: log?.id || newId('l'), carId: L.carId, date: L.date, odo, items: L.items, results, title: L.title, where: L.where, notes: L.notes, checks };
+    delete rec.cost;
     delete rec.revisions;
     await save('logs', rec);
     toast(log ? 'Entry updated' : 'Logged');
@@ -250,6 +268,13 @@ export function itemSheet(itemId, carIdForNew = null) {
   const I = { ...it0, includes: [...(it0.includes || [])] };
   const car = carOf(I.carId);
   const s = sheet('', { full: true, style: carStyle(car), label: I.name || 'New item' });
+  const suggestions = () => {
+    const have = new Set(live(state.items).filter(x => x.carId === I.carId).map(x => x.name.toLowerCase()));
+    const diesel = /diesel/i.test(car.fuel || ''), list = SUGGESTIONS.map((x, i) => ({ ...x, i })).filter(x => !have.has(x.name.toLowerCase()) && (x.fuel === 'any' || (x.fuel === 'diesel') === diesel));
+    if (!list.length) return '';
+    const every = x => [x.everyKm && km(x.everyKm) + ' km', x.everyMonths && (x.everyMonths % 12 ? x.everyMonths + ' months' : (x.everyMonths / 12 === 1 ? 'yearly' : x.everyMonths / 12 + ' years'))].filter(Boolean).join(' or ') || 'set your own';
+    return `<div class="field"><span>Common jobs</span><div class="sugg">${list.map(x => `<button data-sugg="${x.i}">${esc(x.name)}<small>${every(x)}</small></button>`).join('')}</div><span class="hint">Tap one to fill it in, then adjust before saving.</span></div>`;
+  };
   const form = () => {
     const st = itemId ? status({ ...it0 }) : null;
     const hist = itemId ? itemHistory(it0) : [];
@@ -261,6 +286,7 @@ export function itemSheet(itemId, carIdForNew = null) {
           <span class="tx" style="font-size:1em">${esc(st.text)}</span>${lights(st)}</div>
           ${st.last ? `<p class="muted" style="margin:10px 0 0;font-size:.92em">Last done ${st.last.date ? niceDate(st.last.date) : ''}${st.last.odo ? ' at ' + km(st.last.odo) + ' km' : ''}${st.last.baseline ? ' (from Simply Auto)' : ''}${st.last.result === 'attention' ? ' · needed attention' : ''}</p>` : ''}
           <div style="margin-top:12px"><button class="btn paint small" data-logit>${ico('check')} ${I.kind === 'check' ? 'Log a check' : 'Log it done'}</button></div></div>` : ''}
+      ${!itemId ? suggestions() : ''}
       <label class="field"><span>Name</span><input id="name" value="${esc(I.name)}" placeholder="e.g. Coolant flush"></label>
       <div class="field"><span>Type</span><span class="seg" style="align-self:flex-start">
         ${[['job', 'Job'], ['check', 'Check'], ['service', 'Service']].map(([k, l]) => `<button class="plain" data-kind="${k}" aria-pressed="${I.kind === k}">${l}</button>`).join('')}</span>
@@ -270,16 +296,18 @@ export function itemSheet(itemId, carIdForNew = null) {
         <label class="field"><input id="everyMonths" inputmode="numeric" value="${I.everyMonths ?? ''}" placeholder="months"><span class="hint">months</span></label></div>
         <span class="hint">Whichever comes first. Leave both empty to just keep a record.</span></div>
       ${I.kind === 'service' ? `<div class="field"><span>This service includes</span><div class="picks">${others.map(o => `<button class="pick" data-inc="${o.id}" aria-pressed="${I.includes.includes(o.id)}">${esc(o.name)}</button>`).join('') || '<span class="muted">Add other items first.</span>'}</div></div>` : ''}
+      ${I.kind === 'check' ? `<label class="field"><span>Checklist</span><textarea id="checklist" rows="4" placeholder="One point per line (optional)">${esc((I.checklist || []).join('\n'))}</textarea><span class="hint">Each line gets its own OK / Needs attention when you log it.</span></label>` : ''}
       <label class="field"><span>Part number / notes</span><textarea id="notes" rows="2" placeholder="e.g. Ryco Z411 oil filter, 5W-50, 9 L">${esc(I.notes || '')}</textarea></label>
-      ${hist.length ? `<div class="field"><span>History</span><div class="panel rows" style="margin:0">${hist.map(l => `<button class="row" data-editlog="${l.id}"><span class="grow"><span class="t">${niceDate(l.date)}</span><span class="s">${km(l.odo)} km${l.where ? ' · ' + esc(l.where) : ''}${l.results?.[I.id] === 'attention' ? ' · needed attention' : ''}</span>${l.notes ? `<div class="notes">${esc(l.notes)}</div>` : ''}</span><span class="r">${money(l.cost)}</span></button>`).join('')}</div></div>` : ''}
+      ${hist.length ? `<div class="field"><span>History</span><div class="panel rows" style="margin:0">${hist.map(l => `<button class="row" data-editlog="${l.id}"><span class="grow"><span class="t">${niceDate(l.date)}</span><span class="s">${km(l.odo)} km${l.where ? ' · ' + esc(l.where) : ''}${l.results?.[I.id] === 'attention' ? ' · needed attention' : ''}</span>${l.notes ? `<div class="notes">${esc(l.notes)}</div>` : ''}</span></button>`).join('')}</div></div>` : ''}
       <p class="err" id="err" role="alert"></p>
     </div>
     <div class="foot">${itemId ? `<button class="btn danger" data-hide style="flex:0 0 auto">Hide</button>` : ''}<button class="btn paint" data-save>${ico('check')} Save</button></div>`);
   };
-  const read = () => { const g = id => $('#' + id, s.el); I.name = g('name').value.trim(); I.everyKm = numVal(g('everyKm').value); I.everyMonths = numVal(g('everyMonths').value); I.notes = g('notes').value.trim(); };
+  const read = () => { const g = id => $('#' + id, s.el); I.name = g('name').value.trim(); I.everyKm = numVal(g('everyKm').value); I.everyMonths = numVal(g('everyMonths').value); I.notes = g('notes').value.trim(); if (g('checklist')) I.checklist = g('checklist').value.split('\n').map(x => x.trim()).filter(Boolean); };
   s.el.onclick = async e => {
     if (e.target.closest('[data-close]')) return s.close();
     const k = e.target.closest('[data-kind]'); if (k) { read(); I.kind = k.dataset.kind; return form(); }
+    const sg = e.target.closest('[data-sugg]'); if (sg) { const x = SUGGESTIONS[+sg.dataset.sugg]; Object.assign(I, { name: x.name, kind: x.kind, everyKm: x.everyKm || null, everyMonths: x.everyMonths || null }); return form(); }
     const inc = e.target.closest('[data-inc]'); if (inc) { read(); const id = inc.dataset.inc; I.includes = I.includes.includes(id) ? I.includes.filter(x => x !== id) : [...I.includes, id]; return form(); }
     if (e.target.closest('[data-logit]')) return logSheet(I.carId, { items: [itemId] });
     const el = e.target.closest('[data-editlog]'); if (el) return logSheet(I.carId, { log: state.logs.find(l => l.id === el.dataset.editlog) });
@@ -347,6 +375,9 @@ export function importSheet() {
     // only add what's missing, so anything edited here is never overwritten
     const haveF = new Set(state.fills.map(f => f.id)), haveL = new Set(state.logs.map(l => l.id));
     await saveMany('fills', data.fills.filter(f => !haveF.has(f.id)));
+    // fill-ups already here from an earlier import: add their locations if missing
+    const byId = Object.fromEntries(state.fills.map(f => [f.id, f]));
+    await saveMany('fills', data.fills.filter(f => byId[f.id] && byId[f.id].lat == null && f.lat != null).map(f => ({ id: f.id, lat: f.lat, lng: f.lng })));
     await saveMany('logs', data.logs.filter(l => !haveL.has(l.id)));
     toast('Imported'); s.close(); location.hash = '#/';
   };
