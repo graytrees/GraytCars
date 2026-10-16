@@ -2,7 +2,7 @@
 // Only adds or fills in — never removes history. Items he's hidden or renamed are left alone.
 import { state, save, saveMeta } from './store.js';
 import { live } from './calc.js';
-import { basicsItem, BASICS } from './catalogue.js';
+import { basicsItem, BASICS, careItems, WORKSHOPS } from './catalogue.js';
 
 const idFor = (carId, name) => carId.replace('c-', 'i-') + '-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const findItem = (carId, re) => live(state.items).find(i => i.carId === carId && re.test(i.name));
@@ -62,6 +62,14 @@ const STEPS = {
       ensure(E.id, /drain/i, { name: 'Drain water from pre-filter', kind: 'job', everyKm: 5000 });
       ensure(E.id, /factory fuel filter|fuel filter \(factory\)/i, { name: 'Factory fuel filter', kind: 'job', trackPart: true, notes: 'Ford part KV6Z9155E (check against VIN). Add the interval from your logbook.' });
     }
+  },
+  // v3: Wash & paint care items, workshop contacts, dash style per car
+  3() {
+    for (const c of live(state.cars)) {
+      for (const it of careItems(c)) if (!state.items.some(i => i.id === it.id)) save('items', { carId: c.id, includes: [], source: 'GraytCars', everyKm: null, everyMonths: null, ...it });
+      if (!c.cluster) save('cars', { id: c.id, cluster: /everest|ranger|suv|4wd/i.test(c.name + (c.shape || '')) ? 'offroad' : 'track' });
+    }
+    if (!state.meta.workshops?.list?.length) saveMeta('workshops', { list: WORKSHOPS });
   },
 };
 

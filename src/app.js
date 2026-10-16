@@ -1,9 +1,13 @@
-// Screens: Garage (both cars), a car's page (Status · Fuel · History · Specs), Settings, Recycle bin.
+// Screens: Garage (both cars + trips), a car's page (Status · Fuel · History · Build), Settings, Recycle bin.
 import { state, onChange, save, restore, saveMeta } from './store.js';
-import { live, carOdo, carItems, carLevel, fuelStats, economy, km, niceDate, monthYear, ymd } from './calc.js';
-import { $, $$, esc, ico, prefs, setPref, applyPrefs, carArt, carStyle, drums, lights, itemIcon, econ, econUnit, toast, carPhoto, SWATCHES, LEVEL_WORD, closeAll, plate } from './ui.js';
+import { live, carOdo, carItems, carLevel, fuelStats, economy, km, niceDate, monthYear, ymd, tyreStatus, currentTyres, activeTrip, upcomingTrips, parseDay, today, DAY } from './calc.js';
+import { $, $$, esc, ico, prefs, setPref, applyPrefs, carArt, carStyle, drums, rollDrums, lights, itemIcon, econ, econUnit, toast, carPhoto, SWATCHES, LEVEL_WORD, closeAll, plate } from './ui.js';
 import { runSetup } from './setup.js';
-import { fillSheet, logSheet, itemSheet, odoSheet, importSheet, addCarSheet } from './sheets.js';
+import { fillSheet, logSheet, washSheet, itemSheet, odoSheet, importSheet, addCarSheet } from './sheets.js';
+import { tripSheet, modSheet, modHints, tyreSheet, workshopSheet, workshops, contactBtns } from './extras.js';
+import { TRIP_TYPES, MOD_CATS, FILL_TAGS } from './catalogue.js';
+import { calendarConnected, tripEvents } from './calendar.js';
+import { tripCalendarName } from './config.js';
 import { drawEconomy } from './chart.js';
 import { backupNow, maybeWeeklyBackup } from './backup.js';
 import { driveConnected, getToken, listBackups } from './drive.js';
@@ -30,7 +34,11 @@ function render() {
   if (r.view === 'car' && r.tab === 'fuel') { const el = $('#chart'); if (el) drawEconomy(el, economy(r.id), fuelStats(r.id).avgYear); }
   if (key !== lastKey) window.scrollTo(0, 0); else window.scrollTo(0, keepScroll);
   lastKey = key;
+  rollDrums();
+  // the "ignition" sweep and all-green glow play once each time the app is opened
+  if (!ignited && $('.garage .meter')) { ignited = true; const g = $('.garage'); g.classList.add('ignite'); $$('.garage .pill.green').forEach(p => p.classList.add('glow')); setTimeout(() => g.classList.remove('ignite'), 2000); }
 }
+let ignited = false;
 const topbar = (title, back) => `<header class="top">${back ? `<a class="iconbtn" href="${back}" aria-label="Back">${ico('back')}</a>` : ''}
   <h1>${back ? '' : '<span class="mark" aria-hidden="true">GC</span>'}${esc(title)}</h1>
   ${state.pending ? `<span class="sync" title="Saved on this device; will sync when online"><i></i>Syncing</span>` : ''}
@@ -43,7 +51,27 @@ function garage() {
     <h2>Bring your cars across</h2><p class="muted">Pick the Simply Auto backup and your fill-ups, services and reminders come with it.</p>
     <button class="btn" data-import>${ico('list')} Import from Simply Auto</button>
     <button class="btn ghost" data-addcar>${ico('plus')} Add a car by hand</button></div>`;
-  return `${topbar('GraytCars')}<div class="garage">${list.map(carCard).join('')}</div>`;
+  return `${topbar('GraytCars')}<div class="garage">${list.map(carCard).join('')}</div>${tripsBlock()}`;
+}
+let calTrips = [], calTried = false;
+function loadCalendar() {
+  if (calTried || !calendarConnected()) return; calTried = true;
+  tripEvents(false).then(ev => { calTrips = ev; if (route().view === 'garage') render(); }).catch(() => {});
+}
+function tripsBlock() {
+  loadCalendar();
+  const trips = upcomingTrips();
+  const linked = new Set(trips.map(t => t.calEventId).filter(Boolean));
+  const fromCal = calTrips.filter(e => !linked.has(e.id) && !trips.some(t => t.name === e.title && t.start === e.start));
+  const when = t => t.start === (t.end || t.start) ? niceDate(t.start) : `${niceDate(t.start)} – ${niceDate(t.end)}`;
+  const card = t => { const car = carOf(t.carId); const now = t.start <= ymd() && ymd() <= (t.end || t.start);
+    const days = Math.round((parseDay(t.start) - today()) / DAY);
+    const L = Object.keys(t.pre || {}).filter(k => t.pre[k]).length;
+    return `<button class="tripcard" data-trip="${t.id}" style="${car ? carStyle(car) : ''}">${ico('flag')}<span class="grow"><span class="t">${esc(t.name)}</span><span class="s">${now ? 'On now' : days > 0 ? `In ${days} day${days === 1 ? '' : 's'}` : 'Just back – after-trip checks'} · ${when(t)} · ${esc(car?.name || '')} · ${TRIP_TYPES[t.type]}</span></span><span class="chipbtn">${L ? `${L} ticked` : 'Checklist'}</span></button>`; };
+  return `<section class="trips"><h3>Trips</h3>
+    ${trips.map(card).join('')}
+    ${fromCal.map(e => `<button class="tripcard suggestcard" data-plantrip="${esc(e.id)}">${ico('cal')}<span class="grow"><span class="t">${esc(e.title)}</span><span class="s">From ${esc(tripCalendarName)} · ${when(e)} – plan it?</span></span><span class="chipbtn">${ico('plus')} Plan</span></button>`).join('')}
+    <div><button class="btn ghost small" data-newtrip>${ico('plus')} Plan a trip</button></div></section>`;
 }
 function carCard(car) {
   const odo = carOdo(car.id), lv = carLevel(car.id);
@@ -51,20 +79,36 @@ function carCard(car) {
   const top = items.slice(0, 3);
   const st = fuelStats(car.id);
   const summary = lv.red ? `${lv.red} due now` : lv.amber ? `${lv.amber} coming due` : 'All good';
-  return `<article class="car" style="${carStyle(car)}">
+  const trip = activeTrip(car.id);
+  return `<article class="car ${car.cluster || ''}" style="${carStyle(car)}">
     <a class="hero" href="#/car/${car.id}/status" aria-label="Open the ${esc(car.name)}">${carArt(car)}
-      ${car.photo ? '' : `<span class="addphoto">${ico('cam')} Add a photo in Specs</span>`}
+      ${car.photo ? '' : `<span class="addphoto">${ico('cam')} Add a photo in Build</span>`}
       <span class="name"><h2>${esc(car.name)}</h2><p>${car.year ? esc(car.year) + ' ' : ''}${plate(car.plate)}</p></span></a>
     <div class="carbody">
       <div class="readout">
-        <button class="odo" data-odo="${car.id}" aria-label="Update odometer">${drums(odo.odo)}<span class="unit">km<small>${odo.date ? niceDate(odo.date) : ''}</small></span></button>
+        <button class="odo" data-odo="${car.id}" aria-label="Update odometer">${drums(odo.odo, car.id)}<span class="unit">km<small>${odo.date ? niceDate(odo.date) : ''}</small></span></button>
         <span class="pill ${lv.level}"><i></i>${summary}</span>
       </div>
       ${st.last ? `<p class="muted" style="margin:-4px 0 0;font-size:.92em">${ico('fuel')} Last tank <b class="num" style="color:var(--ink);font-size:1.1em">${econ(st.last.l100)}</b> ${econUnit()} · 12-month average ${econ(st.avgYear)}</p>` : ''}
+      ${careLine(car)}
+      ${trip ? `<p class="careline">${ico('flag')}<span><b>${esc(trip.name)}</b> – fill-ups tagged ${esc(FILL_TAGS[{ beach: 'offroad', '4wd': 'offroad', towing: 'towing', track: 'track' }[trip.type] || ''].toLowerCase())}</span></p>` : ''}
       <div class="items">${top.map(i => itemRow(i)).join('')}</div>
       ${items.length > 3 ? `<a class="more" href="#/car/${car.id}/status">All ${items.length} jobs ${ico('chev')}</a>` : ''}
-      <div class="btns"><button class="btn paint" data-fill="${car.id}">${ico('fuel')} Fill up</button><button class="btn ghost" data-log="${car.id}">${ico('wrench')} Log work</button></div>
+      ${actionBtns(car.id)}
     </div></article>`;
+}
+const actionBtns = id => `<div class="btns three"><button class="btn paint" data-fill="${id}">${ico('fuel')} Fill up</button><button class="btn ghost" data-wash="${id}">${ico('spray')} Wash</button><button class="btn ghost" data-log="${id}">${ico('wrench')} Log</button></div>`;
+/** "Washed 12 days ago · Coating top-up due in 3 weeks" */
+function careLine(car) {
+  const care = carItems(car.id, { care: true });
+  if (!care.length) return '';
+  const wash = care.find(i => /^wash$/i.test(i.name));
+  const next = care.filter(i => i.st.level !== 'none' && i.st.level !== 'unknown').sort((a, b) => (a.st.eta ?? 1e9) - (b.st.eta ?? 1e9))[0];
+  const unknown = care.find(i => i.st.level === 'unknown');
+  const bits = [wash ? (wash.st.last ? `Washed <b>${esc(wash.st.text.split(' · ')[0].toLowerCase())}</b>` : 'No wash logged yet') : ''];
+  if (next) bits.push(`<span class="${next.st.level !== 'green' ? 'due' : ''}">${esc(next.name)} ${next.st.level === 'red' ? 'overdue' : esc(next.st.short === 'Overdue' ? 'overdue' : 'in ' + next.st.short)}</span>`);
+  else if (unknown) bits.push(`${esc(unknown.name)} not logged yet`);
+  return `<p class="careline">${ico('spray')}<span>${bits.filter(Boolean).join(' · ')}</span></p>`;
 }
 function itemRow(i, withAction = false) {
   const act = withAction && i.st.level !== 'none' ? (i.kind === 'check'
@@ -75,19 +119,19 @@ function itemRow(i, withAction = false) {
 }
 
 /* ---------- Car page ---------- */
-const TABS = [['status', 'Status', 'gauge'], ['fuel', 'Fuel', 'fuel'], ['history', 'History', 'history'], ['specs', 'Specs', 'list']];
+const TABS = [['status', 'Status', 'gauge'], ['fuel', 'Fuel', 'fuel'], ['history', 'History', 'history'], ['build', 'Build', 'wrench']];
 function carPage(id, tab) {
   const car = carOf(id), odo = carOdo(id), lv = carLevel(id);
-  const body = { status: statusTab, fuel: fuelTab, history: historyTab, specs: specsTab }[tab] || statusTab;
-  return `<div class="carpage" style="${carStyle(car)}">${topbar('Garage', '#/')}
+  const body = { status: statusTab, fuel: fuelTab, history: historyTab, build: buildTab, specs: buildTab }[tab] || statusTab;
+  return `<div class="carpage ${car.cluster || ''}" style="${carStyle(car)}">${topbar('Garage', '#/')}
     <div class="hero">${carArt(car)}<span class="name"><h2>${esc(car.name)}</h2><p>${[car.year, car.make].filter(Boolean).map(esc).join(' ')} ${plate(car.plate)}</p></span></div>
     <div class="carhead">
-      <button class="odo" data-odo="${id}" aria-label="Update odometer">${drums(odo.odo)}<span class="unit">km<small>${odo.date ? niceDate(odo.date) : ''} · tap to update</small></span></button>
+      <button class="odo" data-odo="${id}" aria-label="Update odometer">${drums(odo.odo, id)}<span class="unit">km<small>${odo.date ? niceDate(odo.date) : ''} · tap to update</small></span></button>
       <span class="pill ${lv.level}"><i></i>${lv.red ? `${lv.red} due now` : lv.amber ? `${lv.amber} coming due` : 'All good'}</span></div>
     <nav class="tabs" role="tablist">${TABS.map(([k, l, ic]) => `<button role="tab" aria-selected="${k === tab}" data-tab="${k}">${ico(ic)}${l}</button>`).join('')}</nav>
     ${body(car)}</div>`;
 }
-const dock = id => `<div class="dock" style="${carStyle(carOf(id))}"><div class="btns"><button class="btn paint" data-fill="${id}">${ico('fuel')} Fill up</button><button class="btn ghost" data-log="${id}">${ico('wrench')} Log work</button></div></div>`;
+const dock = id => `<div class="dock" style="${carStyle(carOf(id))}">${actionBtns(id)}</div>`;
 
 function statusTab(car) {
   const all = carItems(car.id);
@@ -96,11 +140,25 @@ function statusTab(car) {
   return `<div class="split"><section class="panel"><h3>Jobs and checks</h3>
       <p class="sub muted">Green is fine, yellow is coming due, red is due now. Each bar fills by distance or time, whichever is closer.</p>
       <div class="items">${tracked.map(i => itemRow(i, true)).join('') || '<p class="muted">Nothing with a reminder yet.</p>'}</div></section>
-    <div>${records.length ? `<section class="panel"><h3>Records only</h3><p class="sub muted">No reminder set. Tap one to add an interval.</p><div class="items">${records.map(i => itemRow(i)).join('')}</div></section>` : ''}
+    <div>${carePanel(car)}${tyrePanel(car, true)}${records.length ? `<section class="panel"><h3>Records only</h3><p class="sub muted">No reminder set. Tap one to add an interval.</p><div class="items">${records.map(i => itemRow(i)).join('')}</div></section>` : ''}
       <section class="panel" style="padding:14px 16px"><button class="btn ghost small" data-newitem="${car.id}">${ico('plus')} Add a job or check</button>
       ${hidden.length ? `<p class="muted" style="margin:12px 0 4px;font-size:.92em">Hidden: ${hidden.map(h => `<button class="chipbtn" data-unhide="${h.id}" style="margin:4px 4px 0 0">${esc(h.name)} · show</button>`).join('')}</p>` : ''}</section></div></div>`;
 }
 
+function carePanel(car) {
+  const care = carItems(car.id, { care: true }).sort((a, b) => /^wash$/i.test(b.name) - /^wash$/i.test(a.name));
+  if (!care.length) return '';
+  return `<section class="panel"><h3>Paint care</h3><p class="sub muted">${car.cluster === 'offroad' ? 'Washes and the paint protection film.' : 'Washes and the ceramic coating.'} Tap Wash below to log.</p><div class="items">${care.map(i => itemRow(i)).join('')}</div></section>`;
+}
+function tyrePanel(car, statusOnly = false) {
+  const sets = currentTyres(car.id);
+  if (!sets.length) return statusOnly ? '' : `<p class="muted" style="padding:0 4px 8px">No tyres recorded yet.</p>`;
+  return `${statusOnly ? `<section class="panel"><h3>Tyres</h3>` : ''}${sets.map(t => { const st = tyreStatus(t);
+    const meter = (m, label) => m ? `<div class="meterlbl"><span>${label}</span><span>${esc(m.text)}</span></div>${lights({ level: m.level, frac: Math.min(m.frac, 1.2) })}` : '';
+    return `<button class="tyre row" data-tyre="${t.id}" style="display:block;border-top:1px solid var(--line)"><span class="t">${esc([t.brand, t.model].filter(Boolean).join(' ') || 'Tyres')}${t.position !== 'all' ? ` · ${t.position}` : ''}</span>
+      <span class="s" style="display:block">${[esc(t.size || ''), st.km != null ? `${km(st.km)} km on them` : '', t.fittedDate ? `fitted ${monthYear(t.fittedDate)}` : ''].filter(Boolean).join(' · ')}</span>
+      ${meter(st.tread, 'Tread')}${meter(st.age, 'Age')}${!st.tread && !st.age ? '<span class="s" style="display:block">Add the DOT code or a tread reading to track wear and age.</span>' : ''}</button>`; }).join('')}${statusOnly ? '</section>' : ''}`;
+}
 function fuelTab(car) {
   const st = fuelStats(car.id);
   const fills = live(state.fills).filter(f => f.carId === car.id).sort((a, b) => b.odo - a.odo || b.date.localeCompare(a.date));
@@ -119,7 +177,7 @@ function fuelTab(car) {
 const fillRow = (f, e) => `<button class="row" data-editfill="${f.id}"><span class="ic fuel">${ico('fuel')}</span>
   <span class="grow"><span class="t">${f.station ? esc(f.station) : (f.litres || 0).toFixed(1) + ' L'}${f.full ? '' : ' · part fill'}</span>
   <span class="s">${niceDate(f.date)} · ${km(f.odo)} km${f.station ? ' · ' + (f.litres || 0).toFixed(1) + ' L' : ''}</span></span>
-  <span class="r">${e ? econ(e.l100) + `<small class="muted"> ${econUnit()}</small>` : ''}</span></button>`;
+  <span class="r">${e ? econ(e.l100) + `<small class="muted"> ${econUnit()}</small>` : ''}${f.tag ? `<br><span class="flag ok" style="margin:0">${esc(FILL_TAGS[f.tag])}</span>` : ''}</span></button>`;
 
 let histFilter = 'all';
 function historyTab(car) {
@@ -146,19 +204,34 @@ function historyTab(car) {
 }
 
 const SPEC_SUGGEST = ['Engine oil (grade & litres)', 'Oil filter part no.', 'Air filter part no.', 'Tyre size', 'Tyre pressures (front / rear)', 'Wiper blades', 'Battery', 'Fuel tank (L)', 'Coolant type'];
-function specsTab(car) {
+function buildTab(car) {
   const specs = car.specs || [];
-  return `<div class="split"><section class="panel"><h3>Parts &amp; numbers</h3><p class="sub muted">Handy at the parts counter. Changes save as you type.</p>
+  const mods = live(state.mods).filter(m => m.carId === car.id);
+  const cur = mods.filter(m => !m.removed).sort((a, b) => MOD_CATS.indexOf(a.category) - MOD_CATS.indexOf(b.category) || (a.date || '').localeCompare(b.date || ''));
+  const gone = mods.filter(m => m.removed);
+  const hints = modHints(car.id);
+  const modRow = m => `<button class="row modrow ${m.removed ? 'removed' : ''}" data-mod="${m.id}"><span class="ic">${ico('bolt')}</span><span class="grow"><span class="cat">${esc(m.category)}</span><span class="t">${esc(m.name)}</span><span class="s">${[m.brand, m.date ? niceDate(m.date) : '', m.odo ? km(m.odo) + ' km' : '', m.installer].filter(Boolean).map(esc).join(' · ') || 'Add the details'}</span></span></button>`;
+  const old = live(state.tyres).filter(t => t.carId === car.id && t.removedDate);
+  return `<div class="split"><div><section class="panel"><h3>Mods</h3><p class="sub muted">What's been fitted, when and by whom.</p>
+      <div class="rows">${cur.map(modRow).join('') || '<p class="muted" style="padding:4px">Nothing yet.</p>'}</div>
+      ${hints.length ? `<p class="sub muted" style="margin:10px 0 0">From your notes and photos – tap to add:</p><div class="suggest">${hints.map((h, i) => `<button class="chipbtn" data-modhint="${i}">${ico('plus')} ${esc(h.name)}</button>`).join('')}</div>` : ''}
+      <div style="padding:6px 4px 10px"><button class="btn ghost small" data-newmod="${car.id}">${ico('plus')} Add a mod</button></div>
+      ${gone.length ? `<p class="sub muted">Removed</p><div class="rows">${gone.map(modRow).join('')}</div>` : ''}</section>
+    <section class="panel"><h3>Tyres</h3>${tyrePanel(car)}
+      ${old.length ? `<p class="sub muted" style="margin-top:8px">Past sets: ${old.map(t => `<button class="chipbtn" data-tyre="${t.id}">${esc([t.brand, t.model].filter(Boolean).join(' ') || 'Tyres')} · ${t.fittedOdo != null && t.removedOdo ? km(t.removedOdo - t.fittedOdo) + ' km' : ''}</button>`).join(' ')}</p>` : ''}
+      <div style="padding:6px 4px 10px"><button class="btn ghost small" data-newtyre="${car.id}">${ico('plus')} ${currentTyres(car.id).length ? 'Add another set' : 'Add tyres'}</button></div></section>
+    <section class="panel"><h3>Parts &amp; numbers</h3><p class="sub muted">Handy at the parts counter. Changes save as you type.</p>
       ${specs.map((s, i) => `<div class="spec"><input class="lbl" data-spec="${i}" data-f="label" value="${esc(s.label)}" aria-label="Label">
         <input data-spec="${i}" data-f="value" value="${esc(s.value)}" aria-label="${esc(s.label)}"><button class="iconbtn" data-delspec="${i}" aria-label="Remove ${esc(s.label)}">${ico('trash')}</button>
         ${s.note ? `<span class="note">${esc(s.note)}</span>` : ''}</div>`).join('')}
       <div class="suggest">${SPEC_SUGGEST.filter(x => !specs.some(s => s.label === x)).map(x => `<button class="chipbtn" data-addspec="${esc(x)}">${ico('plus')} ${esc(x)}</button>`).join('')}
-        <button class="chipbtn" data-addspec="">${ico('plus')} Other</button></div></section>
+        <button class="chipbtn" data-addspec="">${ico('plus')} Other</button></div></section></div>
     <div><section class="panel" style="padding:14px 16px"><h3 style="padding:0 0 10px">Photo &amp; colour</h3>
       <div class="btnrow" style="display:flex;gap:10px;flex-wrap:wrap"><label class="btn paint small" style="cursor:pointer">${ico('cam')} ${car.photo ? 'Change photo' : 'Add a photo'}<input type="file" accept="image/*" data-photo="${car.id}" hidden></label>
       ${car.photo ? `<button class="btn ghost small" data-nophoto="${car.id}">Remove photo</button>` : ''}</div>
       <p class="muted" style="font-size:.9em;margin:10px 0">The colour shows on this car's fill-up and log screens. A new photo picks it from the paint.</p>
-      <div class="swatches">${SWATCHES.map(([n, c]) => `<button style="--c:${c}" data-colour="${c}" aria-label="${n}" aria-pressed="${car.colour?.toLowerCase() === c.toLowerCase()}"></button>`).join('')}</div></section>
+      <div class="swatches">${SWATCHES.map(([n, c]) => `<button style="--c:${c}" data-colour="${c}" aria-label="${n}" aria-pressed="${car.colour?.toLowerCase() === c.toLowerCase()}"></button>`).join('')}</div>
+      <div class="field" style="margin-top:14px"><span>Dash style</span><span class="seg" style="align-self:flex-start">${[['track', 'Track'], ['offroad', 'Off-road'], ['', 'Plain']].map(([v, l]) => `<button class="plain" data-cluster="${v}" aria-pressed="${(car.cluster || '') === v}">${l}</button>`).join('')}</span></div></section>
     <section class="panel" style="padding:14px 16px"><h3 style="padding:0 0 10px">Details</h3>
       <div class="form" style="padding:0;gap:12px">
         <label class="field"><span>Name</span><input data-car="name" value="${esc(car.name)}"></label>
@@ -177,6 +250,11 @@ function settingsPage() {
       <p class="muted">${driveConnected() ? `Every week a copy goes to the GraytCars folder in your Google Drive.` : `Connect Google Drive and a copy is saved there every week (JSON plus spreadsheet-friendly CSVs).`}
       ${b?.lastDay ? `<br>Last backup: <b>${niceDate(b.lastDay)}</b>` : ''}</p>
       <div class="btnrow"><button class="btn small" data-backup>${ico('cloud')} ${driveConnected() ? 'Back up now' : 'Connect Drive and back up'}</button></div></section>
+    <section class="panel"><h3 style="padding:0 0 6px">Workshops</h3><p class="muted">Used by “Book it” on any job.</p>
+      <div class="rows">${workshops().map(w => `<button class="row" data-workshop="${w.id}"><span class="grow"><span class="t">${esc(w.name)}</span><span class="s">${esc(w.phone || '')}${w.address ? ' · ' + esc(w.address) : ''}</span></span>${ico('chev')}</button>`).join('')}</div>
+      <div class="btnrow" style="margin-top:8px"><button class="btn ghost small" data-newworkshop>${ico('plus')} Add a workshop</button></div></section>
+    <section class="panel"><h3 style="padding:0 0 6px">${esc(tripCalendarName)}</h3><p class="muted">${calendarConnected() ? 'Connected. Trips in the calendar show on the Garage screen so you can plan them.' : 'Let GraytCars look at upcoming events (read-only) and spot trips you’ve planned.'}</p>
+      <div class="btnrow"><button class="btn ghost small" data-connectcal>${ico('cal')} ${calendarConnected() ? 'Check for trips now' : 'Connect calendar'}</button></div></section>
     <section class="panel"><h3 style="padding:0 0 6px">Simply Auto</h3><p class="muted">Import a Simply Auto backup. Safe to repeat: nothing is doubled up.</p>
       <div class="btnrow"><button class="btn ghost small" data-import>${ico('list')} Import from Simply Auto</button></div></section>
     <section class="panel"><h3 style="padding:0 0 6px">This device</h3>
@@ -213,13 +291,26 @@ let specTimer;
 function saveSpecs(carId, specs) { clearTimeout(specTimer); specTimer = setTimeout(() => save('cars', { id: carId, specs }), 500); }
 function bind() {
   document.addEventListener('click', async e => {
-    const t = e.target.closest('button,[data-tab]'); if (!t) return;
+    const t = e.target.closest('button,[data-tab]'); if (!t || t.closest('#layer')) return;
     const d = t.dataset, r = route();
     if (d.fill) return fillSheet(d.fill);
     if (d.log) return logSheet(d.log);
+    if (d.wash) return washSheet(d.wash);
+    if (d.trip) return tripSheet(d.trip);
+    if (d.newtrip !== undefined) return tripSheet();
+    if (d.plantrip) { const ev = calTrips.find(x => x.id === d.plantrip); return tripSheet(null, { name: ev.title, start: ev.start, end: ev.end, calEventId: ev.id, type: /track/i.test(ev.title) ? 'track' : /tow|caravan/i.test(ev.title) ? 'towing' : /beach|rainbow|k'?gari|fraser|moreton|bribie|double island/i.test(ev.title + ev.location) ? 'beach' : '4wd' }); }
+    if (d.mod) { const m = state.mods.find(x => x.id === d.mod); return modSheet(m.carId, m.id); }
+    if (d.newmod) return modSheet(d.newmod);
+    if (d.modhint) { const h = modHints(r.id)[+d.modhint]; return modSheet(r.id, null, { ...h }); }
+    if (d.tyre) { const t = state.tyres.find(x => x.id === d.tyre); return tyreSheet(t.carId, t.id); }
+    if (d.newtyre) return tyreSheet(d.newtyre);
+    if (d.workshop) return workshopSheet(d.workshop);
+    if (d.newworkshop !== undefined) return workshopSheet();
+    if (d.cluster !== undefined) return save('cars', { id: r.id, cluster: d.cluster || null });
+    if (d.connectcal !== undefined) { t.disabled = true; try { calTrips = await tripEvents(true); calTried = true; toast(calTrips.length ? `Found ${calTrips.length} trip${calTrips.length === 1 ? '' : 's'} coming up` : 'No trips found in the next 4 months'); } catch (err) { toast(err.message === 'offline' ? 'No connection.' : 'Couldn’t read the calendar: ' + err.message, 6000); } t.disabled = false; render(); return; }
     if (d.odo) return odoSheet(d.odo);
     if (d.tab) { location.hash = `#/car/${r.id}/${d.tab}`; return; }
-    if (d.quicklog && e.target.closest('.act')) return logSheet(state.items.find(i => i.id === d.quicklog).carId, { items: [d.quicklog] });
+    if (d.quicklog && e.target.closest('.act')) { const it = state.items.find(i => i.id === d.quicklog); return logSheet(it.carId, { items: [d.quicklog], care: it.group === 'care' }); }
     if (d.item) return itemSheet(d.item);
     if (d.newitem) return itemSheet(null, d.newitem);
     if (d.unhide) return save('items', { id: d.unhide, hidden: false });

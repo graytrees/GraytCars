@@ -14,6 +14,7 @@ export default defineConfig({
     { find: 'firebase/auth', replacement: r('./test/mocks/auth.js') },
     { find: 'firebase/firestore', replacement: r('./test/mocks/firestore.js') },
     { find: /^\.\/drive\.js$/, replacement: r('./test/mocks/drive.js') },
+    { find: /^\.\/calendar\.js$/, replacement: r('./test/mocks/calendar.js') },
     { find: 'virtual:pwa-register', replacement: r('./test/mocks/pwa.js') },
   ] },
 });

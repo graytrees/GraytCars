@@ -84,6 +84,7 @@ export function status(item) {
     if (!last) return { level: 'none', frac: 0, text: 'Nothing logged yet', short: 'No reminder' };
     const part = last.log?.parts?.[item.id];
     const ago = last.odo != null ? ` · ${km(carOdo(item.carId).odo - last.odo)} km ago` : '';
+    if (item.group === 'care' && last.date) { const d = daysBetween(last.date, ymd()); return { level: 'none', frac: 0, last, text: `${d === 0 ? 'Today' : d === 1 ? 'Yesterday' : span(d) + ' ago'}${part ? ' · ' + part : ''}`, short: 'No reminder' }; }
     return { level: 'none', frac: 0, last, text: `Last done ${last.date ? niceDate(last.date) : ''}${last.odo ? ' at ' + km(last.odo) + ' km' : ''}${part ? ' · ' + part : ''}${ago}`.replace('Last done  at', 'Last done at'), short: 'No reminder' };
   }
   if (!last) return { level: 'unknown', frac: 0, text: 'Not recorded yet', short: 'Not recorded' };
@@ -121,8 +122,8 @@ export function status(item) {
 }
 // soonest-needed first (most overdue at the top); then never-recorded; then records only
 const RANK = { red: 0, amber: 0, green: 0, unknown: 1, none: 2 };
-export function carItems(carId, { withStatus = true } = {}) {
-  const list = live(state.items).filter(i => i.carId === carId && !i.hidden).map(i => ({ ...i, st: withStatus ? status(i) : null }));
+export function carItems(carId, { withStatus = true, care = false } = {}) {
+  const list = live(state.items).filter(i => i.carId === carId && !i.hidden && (care ? i.group === 'care' : i.group !== 'care')).map(i => ({ ...i, st: withStatus ? status(i) : null }));
   return list.sort((a, b) => RANK[a.st.level] - RANK[b.st.level] || (a.st.eta ?? 1e9) - (b.st.eta ?? 1e9) || a.name.localeCompare(b.name));
 }
 export function carLevel(carId) {
@@ -144,7 +145,7 @@ export function economy(carId) {
       const dist = x.odo - prevFull.odo;
       if (!broken && dist > 20 && acc > 0) {
         const l100 = acc / dist * 100;
-        if (l100 > 2 && l100 < 40) out.push({ id: x.id, date: x.date, odo: x.odo, l100, dist, litres: acc, station: x.station });
+        if (l100 > 2 && l100 < 40) out.push({ id: x.id, date: x.date, odo: x.odo, l100, dist, litres: acc, station: x.station, tag: x.tag || '' });
       }
       prevFull = x; acc = 0; broken = false;
     }
@@ -154,12 +155,13 @@ export function economy(carId) {
 export function fuelStats(carId) {
   const e = economy(carId);
   const from = ymd(new Date(today() - 365 * DAY));
-  const yr = e.filter(x => x.date >= from);
+  const normal = e.filter(x => !x.tag);   // towing / 4WD / track tanks are kept out of the averages
+  const yr = normal.filter(x => x.date >= from);
   const avg = list => { const L = list.reduce((s, x) => s + x.litres, 0), D = list.reduce((s, x) => s + x.dist, 0); return D ? L / D * 100 : null; };
   const fills = live(state.fills).filter(x => x.carId === carId);
   const lastFill = fills.sort((a, b) => b.odo - a.odo)[0];
   const rate = kmPerDay(carId);
-  return { series: e, last: e[e.length - 1] || null, avgYear: avg(yr.length >= 3 ? yr : e), avgAll: avg(e), best: e.length ? Math.min(...e.map(x => x.l100)) : null,
+  return { series: e, last: e[e.length - 1] || null, avgYear: avg(yr.length >= 3 ? yr : normal), avgAll: avg(normal), best: normal.length ? Math.min(...normal.map(x => x.l100)) : null,
     lastFill, kmMonth: rate ? rate * 30.44 : null };
 }
 export function maxLitres(carId) {
@@ -192,3 +194,44 @@ export function checkReading(carId, odo, { litres, date } = {}) {
   if (!why.length) return null;
   return { msg: why.join(' '), otherCar: better?.car || null };
 }
+
+/** Was this tank noticeably worse than the car's usual? null if fine. */
+export function economyAlert(carId, fillId) {
+  const e = economy(carId), me = e.find(x => x.id === fillId);
+  if (!me || me.tag) return null;
+  const from = ymd(new Date(parseDay(me.date) - 365 * DAY));
+  const base = e.filter(x => !x.tag && x.id !== fillId && x.date >= from && x.date <= me.date);
+  if (base.length < 4) return null;
+  const avg = base.reduce((s, x) => s + x.litres, 0) / base.reduce((s, x) => s + x.dist, 0) * 100;
+  const pct = (me.l100 - avg) / avg * 100;
+  return pct >= 12 ? { pct: Math.round(pct), avg, l100: me.l100 } : null;
+}
+
+/* ---------- tyres ---------- */
+const TYRE_MIN = 3;   // mm – a sensible replace point (legal minimum is 1.5 mm)
+export function dotDate(dot) { const m = String(dot || '').match(/^(\d{2})(\d{2})$/); if (!m) return null; const d = new Date(2000 + +m[2], 0, 1 + (+m[1] - 1) * 7); return d; }
+export function tyreStatus(t) {
+  const out = {};
+  const made = dotDate(t.dot);
+  if (made) {
+    const yrs = (today() - made) / (365.25 * DAY);
+    out.age = { years: yrs, frac: yrs / 6, level: yrs >= 6 ? 'red' : yrs >= 5 ? 'amber' : 'green', text: `${yrs.toFixed(1)} years old (made ${made.toLocaleDateString('en-AU', { month: 'short', year: 'numeric' })})` };
+  }
+  const rs = [...(t.readings || [])].sort((a, b) => a.odo - b.odo);
+  const start = t.newTread ? { odo: t.fittedOdo || 0, mm: +t.newTread } : rs[0];
+  const last = rs[rs.length - 1];
+  if (start && last && start.mm > TYRE_MIN) {
+    const used = (start.mm - last.mm) / (start.mm - TYRE_MIN);
+    const dist = last.odo - start.odo, wear = dist > 500 ? (start.mm - last.mm) / dist : null;
+    const kmLeft = wear > 0 ? (last.mm - TYRE_MIN) / wear - (carOdo(t.carId).odo - last.odo) : null;
+    out.tread = { mm: last.mm, frac: Math.max(0, used), level: last.mm <= TYRE_MIN ? 'red' : used >= 0.85 ? 'amber' : 'green',
+      text: `${last.mm} mm left${kmLeft != null ? ` · about ${km(Math.max(0, kmLeft))} km to ${TYRE_MIN} mm` : ''}` };
+  }
+  out.km = t.fittedOdo != null ? carOdo(t.carId).odo - t.fittedOdo : null;
+  return out;
+}
+export const currentTyres = carId => live(state.tyres).filter(t => t.carId === carId && !t.removedDate).sort((a, b) => (b.fittedDate || '').localeCompare(a.fittedDate || ''));
+
+/* ---------- trips ---------- */
+export const activeTrip = (carId, date = ymd()) => live(state.trips).find(t => t.carId === carId && t.start <= date && date <= (t.end || t.start));
+export const upcomingTrips = () => live(state.trips).filter(t => (t.end || t.start) >= ymd(new Date(today() - 14 * DAY))).sort((a, b) => a.start.localeCompare(b.start));

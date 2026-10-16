@@ -28,11 +28,26 @@ export const carArt = car => car.photo ? `<img src="${car.photo}" alt="">` : `<d
 export const carThumb = car => car.photo ? `<img src="${car.photo}" alt="">` : SHAPES[shapeOf(car)];
 export const carStyle = car => `--car:${car.colour || '#1C5BC4'}`;
 
-/* ---------- odometer drums ---------- */
-export function drums(odo) {
-  const s = String(Math.round(odo || 0)).padStart(6, '0');
-  const lead = s.length - String(Math.round(odo || 0)).length;
-  return `<span class="drums" aria-label="${km(odo)} kilometres">${[...s].map((d, i) => `<b class="${i < lead ? 'lead' : ''}" aria-hidden="true">${d}</b>`).join('')}</span>`;
+/* ---------- odometer drums (they roll to a new reading) ---------- */
+let shown = (() => { try { return JSON.parse(localStorage.getItem('gc-odo-shown') || '{}'); } catch (e) { return {}; } })();
+export function drums(odo, carId) {
+  const v = Math.round(odo || 0), to = String(v).padStart(6, '0');
+  const lead = to.length - String(v).length;
+  const prev = carId && shown[carId] != null && shown[carId] !== v ? String(shown[carId]).padStart(6, '0').slice(-6) : null;
+  const strip = '<i>' + '0123456789'.split('').map(d => `<em>${d}</em>`).join('') + '</i>';
+  return `<span class="drums" ${prev ? `data-roll="${carId}"` : carId ? `data-seen="${carId}" data-v="${v}"` : ''} aria-label="${km(odo)} kilometres">${[...to].map((d, i) =>
+    `<b class="${i < lead ? 'lead' : ''}" aria-hidden="true" style="--d:${prev ? prev[i] : d}" data-to="${d}">${strip}</b>`).join('')}</span>`;
+}
+/** after a render: roll any drums whose reading changed since last shown on this device */
+export function rollDrums() {
+  const remember = (id, v) => { shown[id] = v; try { localStorage.setItem('gc-odo-shown', JSON.stringify(shown)); } catch (e) {} };
+  document.querySelectorAll('.drums[data-seen]').forEach(el => { if (shown[el.dataset.seen] == null) remember(el.dataset.seen, +el.dataset.v); });
+  document.querySelectorAll('.drums[data-roll]').forEach(el => {
+    const id = el.dataset.roll; el.removeAttribute('data-roll');
+    const bs = [...el.querySelectorAll('b')];
+    requestAnimationFrame(() => requestAnimationFrame(() => bs.forEach((b, i) => { b.style.transitionDelay = (bs.length - i) * 60 + 'ms'; b.style.setProperty('--d', b.dataset.to); })));
+    remember(id, +bs.map(b => b.dataset.to).join(''));
+  });
 }
 
 /* ---------- progress bar: green → yellow → red as it nears due ---------- */
@@ -48,7 +63,7 @@ export const LEVEL_WORD = { red: 'Due now', amber: 'Coming due', green: 'All goo
 export function itemIcon(it) {
   const n = (it.name || '').toLowerCase();
   const rules = [
-    [/basic|monthly/, 'basics'], [/pressure/, 'tpms'], [/rotat/, 'rotate'], [/align/, 'align'],
+    [/wash|coating|detailer|ppf|wax|polish/, 'spray'], [/basic|monthly/, 'basics'], [/pressure/, 'tpms'], [/rotat/, 'rotate'], [/align/, 'align'],
     [/catch ?can|separator/, 'catchcan'], [/water|pre-?filter|fuel filter|drain/, 'water'],
     [/wiper/, 'wiper'], [/brake/, 'brake'], [/coolant|radiator/, 'coolant'], [/light|globe|bulb/, 'lights'],
     [/belt/, 'belt'], [/spark|plug/, 'plug'], [/battery/, 'battery'], [/filter|pollen/, 'filter'],
@@ -86,7 +101,7 @@ export function sheet(html, { full = false, cls = '', style = '', label = '' } =
   open.push(entry);
   return entry;
 }
-export const closeAll = () => { while (open.length) open[open.length - 1].close(); };
+export const closeAll = () => { while (open.length) open.pop().remove(true); };   // on navigation: drop sheets without stepping history back
 
 export function toast(msg, ms = 2600) {
   const t = document.createElement('div');

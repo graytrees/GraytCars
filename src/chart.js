@@ -25,7 +25,7 @@ export function drawEconomy(el, series, avg) {
     ${avgV != null ? `<line x1="${P.l}" x2="${W - P.r}" y1="${Y(avgV)}" y2="${Y(avgV)}" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="5 5"/>
       <text x="${W - P.r}" y="${Y(avgV) - 6}" text-anchor="end" fill="var(--muted)" style="font:600 13px var(--head)">12-month avg ${econ(avg)}</text>` : ''}
     <polyline fill="none" stroke="var(--chart)" stroke-width="2" stroke-linejoin="round" points="${pts.map(p => p.join(',')).join(' ')}"/>
-    ${pts.map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="var(--chart)" stroke="var(--panel)" stroke-width="2"/>`).join('')}
+    ${pts.map((p, i) => series[i].tag ? `<circle cx="${p[0]}" cy="${p[1]}" r="4.5" fill="var(--panel)" stroke="var(--soon)" stroke-width="2"/>` : `<circle cx="${p[0]}" cy="${p[1]}" r="4" fill="var(--chart)" stroke="var(--panel)" stroke-width="2"/>`).join('')}
     <line class="cross" x1="0" x2="0" y1="${P.t}" y2="${H - P.b}" stroke="var(--muted)" stroke-width="1" visibility="hidden"/>
     <circle class="hot" r="7" fill="var(--chart)" stroke="var(--panel)" stroke-width="2" visibility="hidden"/>
     <rect x="${P.l}" y="0" width="${W - P.l - P.r}" height="${H}" fill="transparent" class="hit"/>
@@ -38,7 +38,7 @@ export function drawEconomy(el, series, avg) {
     cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('visibility', 'visible');
     hot.setAttribute('cx', px); hot.setAttribute('cy', py); hot.setAttribute('visibility', 'visible');
     tip.hidden = false; tip.style.left = (px * r.width / W) + 'px'; tip.style.top = (py * r.height / H) + 'px';
-    tip.innerHTML = `<b>${econ(s.l100)} ${econUnit()}</b><br>${niceDate(s.date)} · ${km(s.dist)} km${s.station ? ' · ' + esc(s.station) : ''}`;
+    tip.innerHTML = `<b>${econ(s.l100)} ${econUnit()}</b><br>${niceDate(s.date)} · ${km(s.dist)} km${s.station ? ' · ' + esc(s.station) : ''}${s.tag ? '<br>' + ({ towing: 'Towing', offroad: '4WD / beach', track: 'Track day' }[s.tag]) + ' – not in the average' : ''}`;
   };
   const hide = () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); hot.setAttribute('visibility', 'hidden'); };
   const hit = el.querySelector('.hit');

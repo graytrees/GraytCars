@@ -24,6 +24,14 @@ A private, installable web app (PWA) for Nathan's cars: what's due, logging the 
 - **Fuel economy** is worked out per full tank (part fills are added into the next full one), in L/100km or km/L.
 - History is never silently lost: edits keep the previous version; deletes go to the **Recycle bin** (Settings).
 
+## Extras
+
+- **Wash** (button on each car): logs a wash plus coating / PPF top-ups with the product used, and offers Monthly basics while the car is clean. Shown under *Paint care*.
+- **Build tab**: mods (with quick-adds from notes/photos), tyres (DOT age, tread readings → km to 3 mm), parts & numbers, photo, colour and dash style.
+- **Trip tags** on fill-ups (towing, 4WD/beach, track day) keep those tanks out of the normal average. A tank 12%+ thirstier than usual raises a warning.
+- **Trips**: plan with before/after checklists by type; fill-ups during a trip are tagged automatically. Trips in *The Grayt Schedule* calendar are suggested (read-only access, Settings → connect).
+- **Book it** on any job: call a saved workshop, add a reminder to the calendar, or share to TickTick.
+
 ## Shortcuts
 
 Long-press the GraytCars icon → **Fill up Mustang** / **Fill up Everest**. Drag either onto the home screen for a one-tap fill-up. (Android doesn't allow home-screen widgets for web apps.)

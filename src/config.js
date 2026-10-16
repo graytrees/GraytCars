@@ -19,3 +19,7 @@ export const ownerEmail = 'graytshotz@gmail.com';
 
 // Folder created in the owner's Google Drive.
 export const driveFolderName = 'GraytCars';
+
+// "The Grayt Schedule" shared Google Calendar – read-only, to spot upcoming trips.
+export const tripCalendarId = '4ee0a2355e7380ef5920b5b2846af908169dec81153082e2cc389ed7880e9ebe@group.calendar.google.com';
+export const tripCalendarName = 'The Grayt Schedule';

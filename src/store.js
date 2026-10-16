@@ -11,8 +11,8 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase.js';
 
-export const COLS = ['cars', 'items', 'logs', 'fills', 'meta'];
-export const state = { cars: [], items: [], logs: [], fills: [], meta: {}, ready: {}, pending: false };
+export const COLS = ['cars', 'items', 'logs', 'fills', 'mods', 'tyres', 'trips', 'meta'];
+export const state = { cars: [], items: [], logs: [], fills: [], mods: [], tyres: [], trips: [], meta: {}, ready: {}, pending: false };
 
 let uid = null;
 const unsubs = [];
