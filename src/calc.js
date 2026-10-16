@@ -112,12 +112,18 @@ export function status(item) {
     short = bits[0];
     if (dueDate && parseDay(dueDate) - today() < 5 * 365 * DAY) text += ` · ${roughWhen(dueDate)}`;
   }
-  return { level, frac, kmLeft, daysLeft, dueDate, last, text, short };
+  // days until it's likely needed (negative = overdue), by whichever limit comes first
+  const etas = [];
+  if (daysLeft != null) etas.push(daysLeft);
+  if (kmLeft != null) etas.push(kmLeft / (rate || 40));
+  const eta = etas.length ? Math.min(...etas) : null;
+  return { level, frac, kmLeft, daysLeft, dueDate, last, text, short, eta };
 }
-const RANK = { red: 0, amber: 1, green: 3, unknown: 2, none: 4 };
+// soonest-needed first (most overdue at the top); then never-recorded; then records only
+const RANK = { red: 0, amber: 0, green: 0, unknown: 1, none: 2 };
 export function carItems(carId, { withStatus = true } = {}) {
   const list = live(state.items).filter(i => i.carId === carId && !i.hidden).map(i => ({ ...i, st: withStatus ? status(i) : null }));
-  return list.sort((a, b) => RANK[a.st.level] - RANK[b.st.level] || (b.st.frac || 0) - (a.st.frac || 0) || a.name.localeCompare(b.name));
+  return list.sort((a, b) => RANK[a.st.level] - RANK[b.st.level] || (a.st.eta ?? 1e9) - (b.st.eta ?? 1e9) || a.name.localeCompare(b.name));
 }
 export function carLevel(carId) {
   const it = carItems(carId);
