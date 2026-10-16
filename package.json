@@ -1,0 +1,25 @@
+{
+  "name": "graytcars",
+  "version": "1.0.0",
+  "description": "GraytCars – private car maintenance and fuel log (PWA)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:ui": "vite --config vite.mock.config.js"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@fontsource/atkinson-hyperlegible": "^5.2.6",
+    "@fontsource/barlow-condensed": "^5.2.6",
+    "firebase": "^11.10.0",
+    "jszip": "^3.10.2"
+  },
+  "devDependencies": {
+    "vite": "^6.4.3",
+    "vite-plugin-pwa": "^1.3.0",
+    "vite-plugin-singlefile": "^2.3.3"
+  }
+}
