@@ -40,7 +40,7 @@ export function lights(st) {
   if (!st || st.level === 'none') return '';
   if (st.level === 'unknown') return `<span class="meter unknown" aria-hidden="true"></span>`;
   const p = Math.max(2, Math.min(100, Math.round(st.frac * 100)));
-  return `<span class="meter ${st.frac >= 1 ? 'over' : ''}" style="--p:${p}%" aria-hidden="true"><i></i></span>`;
+  return `<span class="meter ${st.frac >= 1 ? 'over' : ''}" style="--p:${p}%" aria-hidden="true"><i></i><b></b></span>`;
 }
 export const LEVEL_WORD = { red: 'Due now', amber: 'Coming due', green: 'All good', unknown: 'Not recorded', none: 'No reminder' };
 

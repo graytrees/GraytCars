@@ -66,11 +66,11 @@ export function lastDone(item) {
   const h = itemHistory(item)[0];
   const b = item.baseline;
   const fromLog = h ? { odo: h.odo, date: h.date, log: h, result: h.results?.[item.id] } : null;
-  if (!b || (!b.odo && !b.date)) return fromLog;
-  const fromBase = { odo: b.odo || null, date: b.date || null, baseline: true };
+  if (!b || (b.odo == null && !b.date)) return fromLog;
+  const fromBase = { odo: b.odo ?? null, date: b.date || null, baseline: true };
   if (!fromLog) return fromBase;
   // whichever is later (by odometer when both have one)
-  if (fromBase.odo && fromLog.odo) return fromBase.odo > fromLog.odo + 1 ? fromBase : fromLog;
+  if (fromBase.odo != null && fromLog.odo) return fromBase.odo > fromLog.odo + 1 ? fromBase : fromLog;
   return (fromBase.date || '') > fromLog.date ? fromBase : fromLog;
 }
 
@@ -80,10 +80,15 @@ export function status(item) {
   const rate = kmPerDay(item.carId);
   const t = ymd();
   const last = lastDone(item);
-  if (!item.everyKm && !item.everyMonths) return { level: 'none', frac: 0, last, text: last ? `Last done ${niceDate(last.date)}${last.odo ? ' at ' + km(last.odo) + ' km' : ''}` : 'No reminder set', short: 'No reminder' };
+  if (!item.everyKm && !item.everyMonths) {
+    if (!last) return { level: 'none', frac: 0, text: 'Nothing logged yet', short: 'No reminder' };
+    const part = last.log?.parts?.[item.id];
+    const ago = last.odo != null ? ` · ${km(carOdo(item.carId).odo - last.odo)} km ago` : '';
+    return { level: 'none', frac: 0, last, text: `Last done ${last.date ? niceDate(last.date) : ''}${last.odo ? ' at ' + km(last.odo) + ' km' : ''}${part ? ' · ' + part : ''}${ago}`.replace('Last done  at', 'Last done at'), short: 'No reminder' };
+  }
   if (!last) return { level: 'unknown', frac: 0, text: 'Not recorded yet', short: 'Not recorded' };
   let fracKm = null, fracT = null, kmLeft = null, daysLeft = null, timeDue = null;
-  if (item.everyKm && last.odo) { kmLeft = last.odo + item.everyKm - odo; fracKm = (odo - last.odo) / item.everyKm; }
+  if (item.everyKm && last.odo != null) { kmLeft = last.odo + item.everyKm - odo; fracKm = (odo - last.odo) / item.everyKm; }
   if (item.everyMonths && last.date) { timeDue = addMonths(last.date, item.everyMonths); daysLeft = daysBetween(t, timeDue); fracT = daysBetween(last.date, t) / daysBetween(last.date, timeDue); }
   const fracs = [fracKm, fracT].filter(x => x != null);
   if (!fracs.length) return { level: 'unknown', frac: 0, last, text: 'Not recorded yet', short: 'Not recorded' };
@@ -105,7 +110,7 @@ export function status(item) {
     if (daysLeft != null) bits.push(span(daysLeft));
     text = `Due in ${bits.join(' or ')}`;
     short = bits[0];
-    if (dueDate) text += ` · ${roughWhen(dueDate)}`;
+    if (dueDate && parseDay(dueDate) - today() < 5 * 365 * DAY) text += ` · ${roughWhen(dueDate)}`;
   }
   return { level, frac, kmLeft, daysLeft, dueDate, last, text, short };
 }

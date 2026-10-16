@@ -195,6 +195,7 @@ export function logSheet(carId, { items = [], log = null } = {}) {
           <button class="pick" data-other aria-pressed="${showOther}">${ico('plus')} Something else</button></div>
         ${sel.some(i => i.kind === 'service' && i.includes?.length) ? `<span class="hint">A service also ticks the jobs it includes. Untick any that weren't done.</span>` : ''}
       </div>
+      ${sel.filter(i => i.trackPart).map(i => `<label class="field"><span>${esc(i.name)}: brand / part fitted</span><input data-part="${i.id}" list="parts-${i.id}" value="${esc((L.parts || {})[i.id] || '')}" placeholder="e.g. Bendix Ultimate 4WD"><datalist id="parts-${i.id}">${[...new Set(itemHistory(i).map(l => l.parts?.[i.id]).filter(Boolean))].map(x => `<option value="${esc(x)}">`).join('')}</datalist><span class="hint">So you can see how long each brand lasts.</span></label>`).join('')}
       ${showOther ? `<label class="field"><span>Something else</span><input id="title" value="${esc(L.title)}" placeholder="e.g. Replaced wiper blades"></label>` : ''}
       ${checks.length ? `<div class="field"><span>How was it?</span>${checks.map(i => i.checklist?.length
         ? `<div class="result" style="flex-direction:column;align-items:stretch"><b>${esc(i.name)}</b><div class="subchecks">${i.checklist.map((c, n) => `<div class="result"><b>${esc(c)}</b>${seg(i.id + '|' + n, (L.checks[i.id] || {})[c])}</div>`).join('')}</div></div>`
@@ -213,6 +214,7 @@ export function logSheet(carId, { items = [], log = null } = {}) {
     const g = id => $('#' + id, s.el);
     L.notes = g('notes').value.trim(); L.odo = g('odo').value; L.date = g('date').value || ymd();
     L.where = g('where').value.trim();
+    L.parts = { ...(L.parts || {}) }; $$('[data-part]', s.el).forEach(x => { L.parts[x.dataset.part] = x.value.trim(); });
     if (g('title')) L.title = g('title').value.trim();
   };
   s.el.onclick = async e => {
@@ -251,7 +253,7 @@ export function logSheet(carId, { items = [], log = null } = {}) {
     const results = Object.fromEntries(Object.entries(L.results).filter(([k]) => L.items.includes(k) && state.items.find(x => x.id === k)?.kind === 'check'));
     const checks = {};
     for (const id of L.items) { const it = state.items.find(x => x.id === id); if (it?.checklist?.length) checks[id] = Object.fromEntries(it.checklist.map(c => [c, (L.checks[id] || {})[c] || 'ok'])); }
-    const rec = { ...(log || {}), id: log?.id || newId('l'), carId: L.carId, date: L.date, odo, items: L.items, results, title: L.title, where: L.where, notes: L.notes, checks };
+    const rec = { ...(log || {}), id: log?.id || newId('l'), carId: L.carId, date: L.date, odo, items: L.items, results, title: L.title, where: L.where, notes: L.notes, checks, parts: Object.fromEntries(Object.entries(L.parts || {}).filter(([k, v]) => v && L.items.includes(k))) };
     delete rec.cost;
     delete rec.revisions;
     await save('logs', rec);
@@ -260,6 +262,14 @@ export function logSheet(carId, { items = [], log = null } = {}) {
   };
   form();
   return s;
+}
+
+/** "lasted 42,000 km (2 years)" for a replaced part, or "12,000 km so far" for the one fitted now */
+function partLife(l, next) {
+  const span = (a, b) => { const m = Math.round((new Date(b) - new Date(a)) / 864e5 / 30.44); return m < 24 ? `${m} months` : `${(m / 12).toFixed(1).replace(/\.0$/, '')} years`; };
+  if (next) return `lasted ${km(next.odo - l.odo)} km (${span(l.date, next.date)})`;
+  const now = carOdo(l.carId);
+  return `${km(now.odo - l.odo)} km so far (${span(l.date, ymd())})`;
 }
 
 /* =============== ONE ITEM: status, settings, history =============== */
@@ -297,13 +307,14 @@ export function itemSheet(itemId, carIdForNew = null) {
         <span class="hint">Whichever comes first. Leave both empty to just keep a record.</span></div>
       ${I.kind === 'service' ? `<div class="field"><span>This service includes</span><div class="picks">${others.map(o => `<button class="pick" data-inc="${o.id}" aria-pressed="${I.includes.includes(o.id)}">${esc(o.name)}</button>`).join('') || '<span class="muted">Add other items first.</span>'}</div></div>` : ''}
       ${I.kind === 'check' ? `<label class="field"><span>Checklist</span><textarea id="checklist" rows="4" placeholder="One point per line (optional)">${esc((I.checklist || []).join('\n'))}</textarea><span class="hint">Each line gets its own OK / Needs attention when you log it.</span></label>` : ''}
+      <label class="toggle"><span><b>Record the brand each time</b><br><span class="muted" style="font-size:.88em">Shows how long each brand lasts</span></span><input type="checkbox" id="trackPart" ${I.trackPart ? 'checked' : ''}></label>
       <label class="field"><span>Part number / notes</span><textarea id="notes" rows="2" placeholder="e.g. Ryco Z411 oil filter, 5W-50, 9 L">${esc(I.notes || '')}</textarea></label>
-      ${hist.length ? `<div class="field"><span>History</span><div class="panel rows" style="margin:0">${hist.map(l => `<button class="row" data-editlog="${l.id}"><span class="grow"><span class="t">${niceDate(l.date)}</span><span class="s">${km(l.odo)} km${l.where ? ' · ' + esc(l.where) : ''}${l.results?.[I.id] === 'attention' ? ' · needed attention' : ''}</span>${l.notes ? `<div class="notes">${esc(l.notes)}</div>` : ''}</span></button>`).join('')}</div></div>` : ''}
+      ${hist.length ? `<div class="field"><span>History</span><div class="panel rows" style="margin:0">${hist.map((l, n) => `<button class="row" data-editlog="${l.id}"><span class="grow"><span class="t">${niceDate(l.date)}${l.parts?.[I.id] ? ' · ' + esc(l.parts[I.id]) : ''}</span><span class="s">${km(l.odo)} km${l.where ? ' · ' + esc(l.where) : ''}${l.results?.[I.id] === 'attention' ? ' · needed attention' : ''}${I.trackPart ? ' · ' + partLife(l, hist[n - 1]) : ''}</span>${l.notes ? `<div class="notes">${esc(l.notes)}</div>` : ''}</span></button>`).join('')}</div></div>` : ''}
       <p class="err" id="err" role="alert"></p>
     </div>
     <div class="foot">${itemId ? `<button class="btn danger" data-hide style="flex:0 0 auto">Hide</button>` : ''}<button class="btn paint" data-save>${ico('check')} Save</button></div>`);
   };
-  const read = () => { const g = id => $('#' + id, s.el); I.name = g('name').value.trim(); I.everyKm = numVal(g('everyKm').value); I.everyMonths = numVal(g('everyMonths').value); I.notes = g('notes').value.trim(); if (g('checklist')) I.checklist = g('checklist').value.split('\n').map(x => x.trim()).filter(Boolean); };
+  const read = () => { const g = id => $('#' + id, s.el); I.name = g('name').value.trim(); I.everyKm = numVal(g('everyKm').value); I.everyMonths = numVal(g('everyMonths').value); I.notes = g('notes').value.trim(); I.trackPart = g('trackPart').checked; if (g('checklist')) I.checklist = g('checklist').value.split('\n').map(x => x.trim()).filter(Boolean); };
   s.el.onclick = async e => {
     if (e.target.closest('[data-close]')) return s.close();
     const k = e.target.closest('[data-kind]'); if (k) { read(); I.kind = k.dataset.kind; return form(); }

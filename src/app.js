@@ -2,7 +2,7 @@
 import { state, onChange, save, restore, saveMeta } from './store.js';
 import { live, carOdo, carItems, carLevel, fuelStats, economy, km, niceDate, monthYear, ymd } from './calc.js';
 import { $, $$, esc, ico, prefs, setPref, applyPrefs, carArt, carStyle, drums, lights, itemIcon, econ, econUnit, toast, carPhoto, SWATCHES, LEVEL_WORD, closeAll, plate } from './ui.js';
-import { basicsItem } from './catalogue.js';
+import { runSetup } from './setup.js';
 import { fillSheet, logSheet, itemSheet, odoSheet, importSheet, addCarSheet } from './sheets.js';
 import { drawEconomy } from './chart.js';
 import { backupNow, maybeWeeklyBackup } from './backup.js';
@@ -262,15 +262,6 @@ function bind() {
 
 /* ---------- start ---------- */
 let launched = false, backupTried = false, migrated = false;
-/** Every car gets the Monthly basics check; the earlier stand-alone tyre-pressure check is retired if unused. */
-function migrate() {
-  for (const c of live(state.cars)) {
-    const b = basicsItem(c.id);
-    if (!state.items.some(i => i.id === b.id)) save('items', b);
-    const tp = state.items.find(i => i.id === c.id.replace('c-', 'i-') + '-tyre-pressures' && !i.hidden && !i.deleted);
-    if (tp && tp.source === 'GraytCars' && !state.logs.some(l => l.items?.includes(tp.id))) save('items', { id: tp.id, hidden: true });
-  }
-}
 export function startApp({ launch } = {}) {
   applyPrefs();
   bind();
@@ -279,7 +270,7 @@ export function startApp({ launch } = {}) {
   onChange(() => { const a = document.activeElement; if (a && main().contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; render();
     if (!launched && launch && state.ready.cars && state.ready.fills) { launched = true; const c = carOf(launch.fill || launch.log); if (c) (launch.fill ? fillSheet : logSheet)(c.id); }
     if (!backupTried && state.ready.meta && live(state.cars).length) { backupTried = true; maybeWeeklyBackup(); }
-    if (!migrated && state.ready.items && state.ready.logs && state.ready.cars) { migrated = true; migrate(); }
+    if (!migrated && state.ready.items && state.ready.logs && state.ready.cars && state.ready.meta) { migrated = true; runSetup(); }
   });
   let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (route().tab === 'fuel') render(); }, 200); });
   render();
