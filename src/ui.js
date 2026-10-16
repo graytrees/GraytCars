@@ -30,10 +30,12 @@ export const carStyle = car => `--car:${car.colour || '#1C5BC4'}`;
 
 /* ---------- odometer drums (they roll to a new reading) ---------- */
 let shown = (() => { try { return JSON.parse(localStorage.getItem('gc-odo-shown') || '{}'); } catch (e) { return {}; } })();
+let igniteNow = false;
+export const setIgnite = v => { igniteNow = v; };
 export function drums(odo, carId) {
   const v = Math.round(odo || 0), to = String(v).padStart(6, '0');
   const lead = to.length - String(v).length;
-  const prev = carId && shown[carId] != null && shown[carId] !== v ? String(shown[carId]).padStart(6, '0').slice(-6) : null;
+  const prev = carId && igniteNow ? '000000' : carId && shown[carId] != null && shown[carId] !== v ? String(shown[carId]).padStart(6, '0').slice(-6) : null;
   const strip = '<i>' + '0123456789'.split('').map(d => `<em>${d}</em>`).join('') + '</i>';
   return `<span class="drums" ${prev ? `data-roll="${carId}"` : carId ? `data-seen="${carId}" data-v="${v}"` : ''} aria-label="${km(odo)} kilometres">${[...to].map((d, i) =>
     `<b class="${i < lead ? 'lead' : ''}" aria-hidden="true" style="--d:${prev ? prev[i] : d}" data-to="${d}">${strip}</b>`).join('')}</span>`;
@@ -45,7 +47,7 @@ export function rollDrums() {
   document.querySelectorAll('.drums[data-roll]').forEach(el => {
     const id = el.dataset.roll; el.removeAttribute('data-roll');
     const bs = [...el.querySelectorAll('b')];
-    requestAnimationFrame(() => requestAnimationFrame(() => bs.forEach((b, i) => { b.style.transitionDelay = (bs.length - i) * 60 + 'ms'; b.style.setProperty('--d', b.dataset.to); })));
+    requestAnimationFrame(() => requestAnimationFrame(() => bs.forEach((b, i) => { b.style.transitionDelay = 150 + i * 110 + 'ms'; b.style.setProperty('--d', b.dataset.to); })));
     remember(id, +bs.map(b => b.dataset.to).join(''));
   });
 }

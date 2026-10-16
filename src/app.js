@@ -1,7 +1,7 @@
 // Screens: Garage (both cars + trips), a car's page (Status · Fuel · History · Build), Settings, Recycle bin.
-import { state, onChange, save, restore, saveMeta } from './store.js';
+import { state, onChange, save, restore, saveMeta, allReady } from './store.js';
 import { live, carOdo, carItems, carLevel, fuelStats, economy, km, niceDate, monthYear, ymd, tyreStatus, currentTyres, activeTrip, upcomingTrips, parseDay, today, DAY } from './calc.js';
-import { $, $$, esc, ico, prefs, setPref, applyPrefs, carArt, carStyle, drums, rollDrums, lights, itemIcon, econ, econUnit, toast, carPhoto, SWATCHES, LEVEL_WORD, closeAll, plate } from './ui.js';
+import { $, $$, esc, ico, prefs, setPref, applyPrefs, carArt, carStyle, drums, rollDrums, setIgnite, lights, itemIcon, econ, econUnit, toast, carPhoto, SWATCHES, LEVEL_WORD, closeAll, plate } from './ui.js';
 import { runSetup } from './setup.js';
 import { fillSheet, logSheet, washSheet, itemSheet, odoSheet, importSheet, addCarSheet } from './sheets.js';
 import { tripSheet, modSheet, modHints, tyreSheet, workshopSheet, workshops, contactBtns } from './extras.js';
@@ -36,9 +36,21 @@ function render() {
   lastKey = key;
   rollDrums();
   // the "ignition" sweep and all-green glow play once each time the app is opened
-  if (!ignited && $('.garage .meter')) { ignited = true; const g = $('.garage'); g.classList.add('ignite'); $$('.garage .pill.green').forEach(p => p.classList.add('glow')); setTimeout(() => g.classList.remove('ignite'), 2000); }
 }
-let ignited = false;
+
+/* ---------- start-up "ignition": once all records have arrived and settled, the odometers roll up
+   from zero, the bars sweep full and settle, and an all-good car's light glows ---------- */
+let ignition = 'waiting', settleT = null, deferred = false;
+function maybeIgnite() {
+  if (ignition !== 'waiting' || !allReady() || route().view !== 'garage' || !live(state.cars).length) return;
+  clearTimeout(settleT);
+  settleT = setTimeout(() => {        // wait for the burst of first loads to finish
+    if (ignition !== 'waiting' || route().view !== 'garage') return;
+    ignition = 'running'; setIgnite(true); render(); setIgnite(false);
+    const g = $('.garage'); g?.classList.add('ignite'); $$('.garage .pill.green').forEach(p => p.classList.add('glow'));
+    setTimeout(() => { ignition = 'done'; g?.classList.remove('ignite'); if (deferred) { deferred = false; render(); } }, 3000);
+  }, 450);
+}
 const topbar = (title, back) => `<header class="top">${back ? `<a class="iconbtn" href="${back}" aria-label="Back">${ico('back')}</a>` : ''}
   <h1>${back ? '' : '<span class="mark" aria-hidden="true">GC</span>'}${esc(title)}</h1>
   ${state.pending ? `<span class="sync" title="Saved on this device; will sync when online"><i></i>Syncing</span>` : ''}
@@ -358,7 +370,9 @@ export function startApp({ launch } = {}) {
   bind();
   window.addEventListener('hashchange', () => { closeAll(); render(); });
   // don't redraw the page under someone who is typing in it
-  onChange(() => { const a = document.activeElement; if (a && main().contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return; render();
+  onChange(() => { const a = document.activeElement; if (a && main().contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
+    if (ignition === 'running') deferred = true; else render();   // don't redraw mid-animation
+    maybeIgnite();
     if (!launched && launch && state.ready.cars && state.ready.fills) { launched = true; const c = carOf(launch.fill || launch.log); if (c) (launch.fill ? fillSheet : logSheet)(c.id); }
     if (!backupTried && state.ready.meta && live(state.cars).length) { backupTried = true; maybeWeeklyBackup(); }
     if (!migrated && state.ready.items && state.ready.logs && state.ready.cars && state.ready.meta) { migrated = true; runSetup(); }
