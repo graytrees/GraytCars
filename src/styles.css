@@ -292,11 +292,11 @@ details.extra[open] summary{margin-bottom:12px}
 @property --p{syntax:'<percentage>';inherits:true;initial-value:0%}
 @keyframes sweep{0%{--p:0%}40%{--p:100%}55%{--p:100%}}
 .ignite .meter:not(.over){animation:sweep 2.4s cubic-bezier(.3,.7,.3,1) .2s backwards}
-.ignite .meter.over{animation:redline .5s ease-in-out .3s 3 alternate}
-@keyframes redline{to{filter:brightness(1.6) drop-shadow(0 0 6px var(--lstop))}}
+.ignite .meter.over,.ignite .pill.red i{animation:redline .8s ease-in-out .3s 4}
+@keyframes redline{0%,100%{opacity:1;box-shadow:0 0 14px 3px var(--lstop)}50%{opacity:.12;box-shadow:0 0 0 0 transparent}}
 @keyframes glow{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--lgo) 35%,transparent),0 0 22px 2px var(--lgo)}}
 .pill.green.glow{animation:glow 1.4s ease-in-out 2}
-@media (prefers-reduced-motion: reduce){.ignite .meter,.ignite .meter.over,.pill.glow{animation:none}.drums b i{transition:none}}
+@media (prefers-reduced-motion: reduce){.ignite .meter,.ignite .meter.over,.ignite .pill.red i,.pill.glow{animation:none}.drums b i{transition:none}}
 
 /* three buttons under each car */
 .btns.three{grid-template-columns:1.25fr 1fr 1fr}

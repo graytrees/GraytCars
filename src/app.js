@@ -48,7 +48,7 @@ function maybeIgnite() {
     if (ignition !== 'waiting' || route().view !== 'garage') return;
     ignition = 'running'; setIgnite(true); render(); setIgnite(false);
     const g = $('.garage'); g?.classList.add('ignite'); $$('.garage .pill.green').forEach(p => p.classList.add('glow'));
-    setTimeout(() => { ignition = 'done'; g?.classList.remove('ignite'); if (deferred) { deferred = false; render(); } }, 3000);
+    setTimeout(() => { ignition = 'done'; g?.classList.remove('ignite'); if (deferred) { deferred = false; render(); } }, 3800);
   }, 450);
 }
 const topbar = (title, back) => `<header class="top">${back ? `<a class="iconbtn" href="${back}" aria-label="Back">${ico('back')}</a>` : ''}
