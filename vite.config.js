@@ -10,7 +10,8 @@ export default defineConfig({
     registerType: 'prompt',
     includeAssets: ['icon-192.png', 'icon-512.png'],
     manifest: {
-      name: 'GraytCars', short_name: 'GraytCars', description: 'Car maintenance and fuel log',
+      // id changed 16 Oct 2026 so Android treats it as a fresh install after a stuck uninstall
+      id: base + 'app', name: 'GraytCars', short_name: 'GraytCars', description: 'Car maintenance and fuel log',
       start_url: base, scope: base, display: 'standalone', orientation: 'portrait-primary',
       background_color: '#0B1A2E', theme_color: '#0B1A2E',
       icons: [
