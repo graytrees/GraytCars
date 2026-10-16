@@ -223,8 +223,8 @@ details.extra[open] summary{margin-bottom:12px}
 .warnbox h3{font-size:calc(26px*var(--fs));margin-bottom:6px;color:var(--soon)}
 .which{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
 .which button{border-radius:14px;overflow:hidden;background:var(--panel);text-align:left;border:3px solid transparent;display:flex;flex-direction:column}
-.which button .ph{aspect-ratio:16/10;background:var(--c);display:grid;place-items:center;color:rgba(255,255,255,.6)}
-.which button .ph img{width:100%;height:100%;object-fit:cover}
+.which button .ph{aspect-ratio:16/10;background:var(--c);display:grid;place-items:center;color:rgba(255,255,255,.6);position:relative;overflow:hidden}
+.which button .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .which button .ph svg{width:80%}
 .which button span{padding:8px 10px;font:700 calc(19px*var(--fs))/1.1 var(--head)}
 .which button:hover{border-color:var(--c)}

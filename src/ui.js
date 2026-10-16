@@ -120,8 +120,13 @@ export function paintColour(img) {
     const bin = bins[Math.floor(h / 15)], w = sat * sat;
     bin.w += w; bin.r += r * w; bin.g += gg * w; bin.b += b * w;
   }
-  const best = bins.reduce((a, b) => (b.w > a.w ? b : a));
-  if (best.w < 40) return null;
+  // look at each hue with its neighbours (reds sit either side of 0°)
+  let best = null;
+  for (let i = 0; i < 24; i++) {
+    const g3 = [bins[(i + 23) % 24], bins[i], bins[(i + 1) % 24]].reduce((a, b) => ({ w: a.w + b.w, r: a.r + b.r, g: a.g + b.g, b: a.b + b.b }), { w: 0, r: 0, g: 0, b: 0 });
+    if (!best || g3.w > best.w) best = g3;
+  }
+  if (best.w < 15) return null;
   return darkenForText(best.r / best.w, best.g / best.w, best.b / best.w);
 }
 /** Keep the colour dark enough for white writing on it */
@@ -134,4 +139,4 @@ export function darkenForText(r, g, b) {
   }
   return '#333333';
 }
-export const SWATCHES = [['Race Red', '#C8102E'], ['Ford blue', '#1C5BC4'], ['Deep navy', '#1B2F55'], ['Graphite', '#3F4752'], ['Bronze', '#7A4E22'], ['Forest', '#2F5D3A'], ['Orange', '#B44A00'], ['Purple', '#5B3A86']];
+export const SWATCHES = [['Race Red', '#C8102E'], ['Ford blue', '#1C5BC4'], ['Deep navy', '#1B2F55'], ['Graphite', '#3F4752'], ['Copper', '#9A3F1C'], ['Bronze', '#7A4E22'], ['Forest', '#2F5D3A'], ['Orange', '#B44A00'], ['Purple', '#5B3A86']];
