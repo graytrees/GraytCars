@@ -181,6 +181,16 @@ async function quickAction(btn, carId) {
   row.querySelector('.tx').textContent = 'Checked today';
 }
 
+/** Past workshop/service visits for this car (date, odometer, where) – for backdating a job */
+function visits(carId) {
+  const seen = new Set(), out = [];
+  for (const l of live(state.logs).filter(l => l.carId === carId && l.odo).sort((a, b) => b.date.localeCompare(a.date))) {
+    if (seen.has(l.date) || !l.where || /^home$/i.test(l.where)) continue;
+    seen.add(l.date); out.push({ date: l.date, odo: l.odo, where: l.where });
+    if (out.length >= 4) break;
+  }
+  return out;
+}
 /** Wash = the car's Wash item, plus Monthly basics if it's due ("do them when I wash it") */
 function washDefaults(carId) {
   const wash = live(state.items).find(i => i.carId === carId && i.group === 'care' && /^wash$/i.test(i.name) && !i.hidden);
@@ -200,6 +210,7 @@ export function logSheet(carId, { items = [], log = null, care = false } = {}) {
   if (log && (log.items || []).some(id => state.items.find(x => x.id === id)?.group === 'care')) care = true;
   const s = sheet('', { full: true, style: carStyle(car), label: care ? 'Wash' : 'Log work' });
   let showOther = !!L.title;
+  let showAll = !(items.length && !care) || !!log;   // opened from one job: show just that job, so "When" is in view
   const form = () => {
     car = carOf(L.carId); s.el.style.cssText = carStyle(car);
     const list = care ? [...carItems(L.carId, { care: true }).sort((a, b) => /^wash$/i.test(b.name) - /^wash$/i.test(a.name)), ...carItems(L.carId).filter(i => i.checklist?.length)] : carItems(L.carId);
@@ -208,9 +219,18 @@ export function logSheet(carId, { items = [], log = null, care = false } = {}) {
     s.set(`${band(car, care ? (log ? 'Edit wash' : 'Wash') : log ? 'Edit work' : 'Log work', { switchable: !log && (!items.length || care) })}
     <div class="form">
       <div class="field"><span>What did you do?</span>
-        <div class="picks">${list.map(i => `<button class="pick" data-toggle="${i.id}" aria-pressed="${L.items.includes(i.id)}"><span class="d ${i.st.level}"></span>${esc(i.name)}</button>`).join('')}
-          <button class="pick" data-other aria-pressed="${showOther}">${ico('plus')} Something else</button></div>
+        <div class="picks">${(showAll ? list : sel).map(i => `<button class="pick" data-toggle="${i.id}" aria-pressed="${L.items.includes(i.id)}"><span class="d ${i.st.level}"></span>${esc(i.name)}</button>`).join('')}${showAll ? '' : `<button class="pick" data-showall>${ico('plus')} Add another job</button>`}
+          ${showAll ? `<button class="pick" data-other aria-pressed="${showOther}">${ico('plus')} Something else</button>` : ''}</div>
         ${sel.some(i => i.kind === 'service' && i.includes?.length) ? `<span class="hint">A service also ticks the jobs it includes. Untick any that weren't done.</span>` : ''}
+      </div>
+      <div class="field when"><span>When was it done?</span>
+        ${log ? '' : `<div class="sugg">${[{ date: ymd(), odo: carOdo(L.carId).odo, where: '', label: 'Today' }, ...visits(L.carId)].map(v => `<button data-visit="${v.date}|${v.odo}|${esc(v.where)}" style="${L.date === v.date && +L.odo === +v.odo ? 'box-shadow:inset 0 0 0 2px var(--car);' : ''}">${esc(v.label || niceDate(v.date))}<small>${km(v.odo)} km${v.where ? ' · ' + esc(v.where) : ''}</small></button>`).join('')}</div>
+        <span class="hint">Done earlier? Pick a past visit, or set the date and odometer below.</span>`}
+        <div class="pair">
+          <label class="field"><span>Date</span><input type="date" id="date" value="${L.date}" max="${ymd()}" style="min-height:62px"></label>
+          <label class="field"><span>Odometer (km)</span><input class="big" id="odo" inputmode="numeric" value="${esc(L.odo)}"></label>
+        </div>
+        <label class="field"><span>Where</span><input id="where" list="places" value="${esc(L.where)}" placeholder="Home, Brendale Auto…"><datalist id="places">${['Home', ...places()].map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
       </div>
       ${sel.filter(i => i.trackPart).map(i => `<label class="field"><span>${esc(i.name)}: ${i.group === 'care' ? 'product used' : 'brand / part fitted'}</span><input data-part="${i.id}" list="parts-${i.id}" value="${esc((L.parts || {})[i.id] || '')}" placeholder="${i.group === 'care' ? 'e.g. Gyeon Bathe' : 'e.g. Bendix Ultimate 4WD'}"><datalist id="parts-${i.id}">${[...new Set(itemHistory(i).map(l => l.parts?.[i.id]).filter(Boolean))].map(x => `<option value="${esc(x)}">`).join('')}</datalist>${i.group === 'care' ? '' : '<span class="hint">So you can see how long each brand lasts.</span>'}</label>`).join('')}
       ${showOther ? `<label class="field"><span>Something else</span><input id="title" value="${esc(L.title)}" placeholder="e.g. Replaced wiper blades"></label>` : ''}
@@ -218,11 +238,6 @@ export function logSheet(carId, { items = [], log = null, care = false } = {}) {
         ? `<div class="result" style="flex-direction:column;align-items:stretch"><b>${esc(i.name)}</b><div class="subchecks">${i.checklist.map((c, n) => `<div class="result"><b>${esc(c)}</b>${seg(i.id + '|' + n, (L.checks[i.id] || {})[c])}</div>`).join('')}</div></div>`
         : `<div class="result"><b>${esc(i.name)}</b>${seg(i.id, L.results[i.id])}</div>`).join('')}</div>` : ''}
       <label class="field"><span>Notes</span><textarea id="notes" rows="3" placeholder="e.g. Castrol Edge 5W-50, 8.8 L. Front pads about 60%.">${esc(L.notes)}</textarea></label>
-      <div class="pair">
-        <label class="field"><span>Odometer (km)</span><input class="big" id="odo" inputmode="numeric" value="${esc(L.odo)}"></label>
-        <label class="field"><span>Date</span><input type="date" id="date" value="${L.date}" max="${ymd()}" style="min-height:62px"></label>
-      </div>
-      <label class="field"><span>Where</span><input id="where" list="places" value="${esc(L.where)}" placeholder="Home, Brendale Auto…"><datalist id="places">${['Home', ...places()].map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
       <p class="err" id="err" role="alert"></p>
     </div>
     <div class="foot">${log ? `<button class="btn danger" data-del style="flex:0 0 auto" aria-label="Delete">${ico('trash')}</button>` : ''}<button class="btn paint" data-save>${ico('check')} Save</button></div>`);
@@ -246,6 +261,9 @@ export function logSheet(carId, { items = [], log = null, care = false } = {}) {
       return form();
     }
     if (e.target.closest('[data-other]')) { read(); showOther = !showOther; if (!showOther) L.title = ''; form(); if (showOther) $('#title', s.el)?.focus(); return; }
+    if (e.target.closest('[data-showall]')) { read(); showAll = true; return form(); }
+    const vb = e.target.closest('[data-visit]');
+    if (vb) { read(); const [d, o, w] = vb.dataset.visit.split('|'); L.date = d; L.odo = o; if (w) L.where = w; return form(); }
     const r = e.target.closest('[data-res]');
     if (r) {
       read(); const [id, n] = r.dataset.res.split('|');
