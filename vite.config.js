@@ -22,7 +22,7 @@ export default defineConfig({
       // Long-press the app icon → straight to a fill-up. Each can be dragged onto the home screen.
       shortcuts: [
         { name: 'Fill up Mustang', short_name: 'Fill Mustang', url: base + '?fill=c-mustang', icons: [{ src: 'shortcut-mustang.png', sizes: '192x192', type: 'image/png' }] },
-        { name: 'Fill up Everest', short_name: 'Fill Everest', url: base + '?fill=c-everest', icons: [{ src: 'shortcut-everest.png', sizes: '192x192', type: 'image/png' }] },
+        { name: 'Fill up Everest', short_name: 'Fill Everest', url: base + '?fill=c-everest', icons: [{ src: 'shortcut-everest-v2.png', sizes: '192x192', type: 'image/png' }] },
       ],
     },
     workbox: {
