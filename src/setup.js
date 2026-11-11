@@ -90,6 +90,17 @@ const STEPS = {
       if (!(E.specs || []).some(s => /drive belt/i.test(s.label))) save('cars', { id: E.id, specs: [...(E.specs || []), { label: 'Spare drive belt part no.', value: 'MB3Z8620E', note: 'Jefferson Ford, Nov 2024 – spare on the shelf' }] });
     }
   },
+  // v5 (Nov 2026): Monthly basics follows the calendar month – due on the 1st, done once any time that month
+  5() {
+    for (const c of live(state.cars)) {
+      const b = live(state.items).find(i => i.id === basicsItem(c.id).id);
+      if (b && b.everyMonths === 1 && b.calendar == null) save('items', { id: b.id, calendar: true });
+    }
+    // Everest factory fuel filter: every second service (interval supplied by Nathan, 11 Nov 2026). Left alone if he's already set one.
+    const E = state.cars.find(c => c.id === 'c-everest' && !c.deleted), ff = E && findItem(E.id, /factory fuel filter/i);
+    if (ff && !ff.everyKm && !ff.everyMonths) save('items', { id: ff.id, everyKm: 30000, everyMonths: 24,
+      notes: (ff.notes || '').replace(/\s*Add the interval from your logbook\.?/, '').trim() + ' Every 30,000 km / 24 months (every second service); every service under severe use such as heavy towing, dust or lots of short trips.' });
+  },
 };
 
 export function runSetup() {

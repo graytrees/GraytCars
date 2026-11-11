@@ -98,6 +98,17 @@ export function status(item) {
     if (item.group === 'care' && last.date) { const d = daysBetween(last.date, ymd()); return { level: 'none', frac: 0, last, text: `${d === 0 ? 'Today' : d === 1 ? 'Yesterday' : span(d) + ' ago'}${part ? ' · ' + part : ''}`, short: 'No reminder' }; }
     return { level: 'none', frac: 0, last, text: `Last done ${last.date ? niceDate(last.date) : ''}${last.odo ? ' at ' + km(last.odo) + ' km' : ''}${part ? ' · ' + part : ''}${ago}`.replace('Last done  at', 'Last done at'), short: 'No reminder' };
   }
+  // "Due on the 1st": a monthly check that follows the calendar month rather than a month after it was last done (never done counts as due)
+  if (item.calendar && item.everyMonths === 1) {
+    const first = t.slice(0, 8) + '01', next = addMonths(first, 1), nm = parseDay(next), mon = MON[parseDay(first).getMonth()];
+    if (last?.date >= first) {
+      const daysLeft = daysBetween(t, next);
+      return { level: 'green', frac: daysBetween(first, t) / daysBetween(first, next), daysLeft, dueDate: next, last, eta: daysLeft, short: span(daysLeft),
+        text: `Done for ${mon} · next due 1 ${MON[nm.getMonth()]}` };
+    }
+    const over = daysBetween(first, t);
+    return { level: 'red', frac: 1, daysLeft: -over, dueDate: first, last, eta: -over, short: 'Overdue', text: `Due now · ${mon} check not done yet` };
+  }
   if (!last) return { level: 'unknown', frac: 0, text: 'Not recorded yet', short: 'Not recorded' };
   let fracKm = null, fracT = null, kmLeft = null, daysLeft = null, timeDue = null;
   if (item.everyKm && last.odo != null) { kmLeft = last.odo + item.everyKm - odo; fracKm = (odo - last.odo) / item.everyKm; }
@@ -144,21 +155,40 @@ export function carLevel(carId) {
 }
 
 /* ---------- fuel ---------- */
+const BRANDS = [[/7.?eleven|\b711/i, '7-Eleven'], [/ampol|caltex|\beg\b|woolworths/i, 'Ampol'], [/\bbp\b/i, 'BP'], [/shell|coles express|reddy/i, 'Shell'], [/united/i, 'United'],
+  [/liberty/i, 'Liberty'], [/costco/i, 'Costco'], [/puma/i, 'Puma'], [/mobil/i, 'Mobil'], [/freedom/i, 'Freedom'], [/metro/i, 'Metro'], [/pearl/i, 'Pearl'], [/vibe/i, 'Vibe'], [/\botr\b/i, 'OTR']];
+/** "BP Brendale" → "BP", "EG Ampol Warner" → "Ampol"; an unknown servo keeps its own name */
+export function brandOf(station) {
+  const s = (station || '').trim(); if (!s) return '';
+  for (const [re, b] of BRANDS) if (re.test(s)) return b;
+  const w = s.split(/\s+/); return w.length <= 2 ? s : w[0];
+}
+/** Economy on each brand's fuel: every tank counts for the servo that filled it (the fuel then driven on), not the one that topped it up after. */
+export function economyByBrand(carId) {
+  const by = {};
+  for (const x of economy(carId)) {
+    if (x.tag || x.odd || !x.burned) continue;
+    const b = by[x.burned] || (by[x.burned] = { brand: x.burned, litres: 0, dist: 0, tanks: 0 });
+    b.litres += x.litres; b.dist += x.dist; b.tanks++;
+  }
+  return Object.values(by).map(b => ({ ...b, l100: b.litres / b.dist * 100 })).sort((a, b) => (b.tanks >= 2) - (a.tanks >= 2) || a.l100 - b.l100);
+}
 /** L/100km for each full fill, counting any partial fills in between */
 export function economy(carId) {
   const f = live(state.fills).filter(x => x.carId === carId).sort((a, b) => a.odo - b.odo || a.date.localeCompare(b.date));
-  const out = []; let prevFull = null, acc = 0, broken = false;
+  const out = []; let prevFull = null, acc = 0, broken = false, mixed = false;
   for (const x of f) {
     if (prevFull == null) { if (x.full) prevFull = x; continue; }
     acc += x.litres || 0;
     if (x.missed) broken = true;
+    if (!x.full && brandOf(x.station) !== brandOf(prevFull.station)) mixed = true;   // a part fill from another brand along the way
     if (x.full) {
       const dist = x.odo - prevFull.odo;
       if (!broken && dist > 20 && acc > 0) {
         const l100 = acc / dist * 100;
-        if (l100 > 2 && l100 < 40) out.push({ id: x.id, date: x.date, odo: x.odo, l100, dist, litres: acc, station: x.station, tag: x.tag || '' });
+        if (l100 > 2 && l100 < 40) out.push({ id: x.id, date: x.date, odo: x.odo, l100, dist, litres: acc, station: x.station, tag: x.tag || '', burned: mixed ? '' : brandOf(prevFull.station) });
       }
-      prevFull = x; acc = 0; broken = false;
+      prevFull = x; acc = 0; broken = false; mixed = false;
     }
   }
   // A tank far from this car's usual figure is almost always a missed or short fill, not real economy.

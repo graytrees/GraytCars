@@ -1,6 +1,6 @@
 // Screens: Garage (both cars + trips), a car's page (Status · Fuel · History · Build), Settings, Recycle bin.
 import { state, onChange, save, restore, saveMeta, allReady } from './store.js';
-import { live, carOdo, carItems, carLevel, fuelStats, economy, km, niceDate, monthYear, ymd, tyreStatus, currentTyres, activeTrip, upcomingTrips, parseDay, today, DAY } from './calc.js';
+import { live, carOdo, carItems, carLevel, fuelStats, economy, economyByBrand, km, niceDate, monthYear, ymd, tyreStatus, currentTyres, activeTrip, upcomingTrips, parseDay, today, DAY } from './calc.js';
 import { $, $$, esc, ico, prefs, setPref, applyPrefs, carArt, carStyle, drums, rollDrums, setIgnite, lights, itemIcon, econ, econUnit, toast, carPhoto, SWATCHES, LEVEL_WORD, closeAll, plate } from './ui.js';
 import { runSetup } from './setup.js';
 import { fillSheet, logSheet, washSheet, itemSheet, odoSheet, importSheet, addCarSheet, catchUpSheet, notRecorded } from './sheets.js';
@@ -33,6 +33,7 @@ function render() {
   if (r.view === 'car' && carOf(r.id)) document.body.insertAdjacentHTML('beforeend', dock(r.id));
   if (r.view === 'car' && r.tab === 'fuel') { const el = $('#chart'); if (el) drawEconomy(el, economy(r.id), fuelStats(r.id).avgYear); }
   if (key !== lastKey) window.scrollTo(0, 0); else window.scrollTo(0, keepScroll);
+  if (r.view !== 'car' || r.tab !== 'history') histQuery = '';
   lastKey = key;
   rollDrums();
   // the "ignition" sweep and all-green glow play once each time the app is opened
@@ -187,21 +188,38 @@ function fuelTab(car) {
       <div class="tile"><span>Driving</span><b>${st.kmMonth ? km(st.kmMonth) : '–'}<small>km/month</small></b></div>
     </div>
     <section class="panel"><h3>Economy, every tank</h3><p class="sub muted">${econUnit()}. ${prefs.unit === 'kml' ? 'Higher' : 'Lower'} is better. Tap a point for details.</p><div class="chart" id="chart"></div></section>
+    ${brandPanel(car)}
     <section class="panel"><h3>Fill-ups</h3><div class="rows">${show.map(f => fillRow(f, eco[f.id])).join('')}</div>
       ${fills.length > show.length ? `<p class="muted" style="padding:8px 4px">Older fill-ups are in History.</p>` : ''}</section>`;
+}
+/** Which servo's fuel goes furthest: one bar per brand, best first */
+function brandPanel(car) {
+  const all = economyByBrand(car.id), list = all.filter(b => b.tanks >= 2), few = all.filter(b => b.tanks < 2);
+  if (!all.length) return '';
+  const worst = Math.max(...list.map(b => b.l100), 0);
+  return `<section class="panel"><h3>By servo brand</h3>
+    <p class="sub muted">Each tank counts for the servo that filled it, the fuel you then drove on. Towing, 4WD, track and odd tanks are left out. Small gaps are just different driving.</p>
+    ${list.length >= 2 ? `<div class="brands">${list.map((b, i) => `<div class="brand ${i === 0 ? 'best' : ''}"><span class="nm">${esc(b.brand)}</span><span class="v"><b>${econ(b.l100)}</b> ${econUnit()}</span>
+      <span class="bar"><i style="width:${Math.round(b.l100 / worst * 100)}%"></i></span><span class="n">${plural(b.tanks, 'tank')} · ${km(b.dist)} km</span></div>`).join('')}</div>`
+      : `<p class="muted" style="padding:4px">Needs at least two tanks from two different brands with the servo recorded.</p>`}
+    ${list.length >= 2 && few.length ? `<p class="muted" style="padding:6px 4px 4px;font-size:.88em">Only one tank so far: ${few.map(b => esc(b.brand)).join(', ')}.</p>` : ''}</section>`;
 }
 const fillRow = (f, e) => `<button class="row" data-editfill="${f.id}"><span class="ic fuel">${ico('fuel')}</span>
   <span class="grow"><span class="t">${f.station ? esc(f.station) : (f.litres || 0).toFixed(1) + ' L'}${f.full ? '' : ' · part fill'}</span>
   <span class="s">${niceDate(f.date)} · ${km(f.odo)} km${f.station ? ' · ' + (f.litres || 0).toFixed(1) + ' L' : ''}</span></span>
   <span class="r">${e ? econ(e.l100) + `<small class="muted"> ${econUnit()}</small>` : ''}${f.tag ? `<br><span class="flag ok" style="margin:0">${esc(FILL_TAGS[f.tag])}</span>` : e?.odd ? `<br><span class="flag odd" style="margin:0">Odd tank</span>` : ''}</span></button>`;
 
-let histFilter = 'all';
-function historyTab(car) {
+let histFilter = 'all', histQuery = '';
+function historyRows(car) {
   const name = Object.fromEntries(state.items.map(i => [i.id, i.name]));
   const logs = live(state.logs).filter(l => l.carId === car.id).map(l => ({ t: 'log', date: l.date, odo: l.odo, l }));
   const fills = live(state.fills).filter(f => f.carId === car.id).map(f => ({ t: 'fill', date: f.date, odo: f.odo, f }));
   const eco = Object.fromEntries(economy(car.id).map(e => [e.id, e]));
-  const list = (histFilter === 'work' ? logs : histFilter === 'fuel' ? fills : [...logs, ...fills]).sort((a, b) => b.date.localeCompare(a.date) || b.odo - a.odo);
+  // search: every word typed must appear somewhere in the entry (job, workshop, servo, notes, part, date)
+  const words = histQuery.toLowerCase().split(/\s+/).filter(Boolean);
+  const text = x => (x.t === 'fill' ? ['fill-up fuel', x.f.station, x.f.notes, (x.f.litres || 0).toFixed(1) + ' l', FILL_TAGS[x.f.tag] || '']
+    : [...(x.l.items || []).map(i => name[i]), x.l.title, x.l.where, x.l.notes, ...Object.values(x.l.parts || {})]).concat(niceDate(x.date), km(x.odo), String(x.odo)).filter(Boolean).join(' ').toLowerCase();
+  const list = (histFilter === 'work' ? logs : histFilter === 'fuel' ? fills : [...logs, ...fills]).filter(x => !words.length || words.every(w => text(x).includes(w))).sort((a, b) => b.date.localeCompare(a.date) || b.odo - a.odo);
   let yr = '';
   const rows = list.map(x => {
     const y = x.date.slice(0, 4), head = y !== yr ? `${yr ? '</div></section>' : ''}<section class="panel"><div class="yr">${y}</div><div class="rows">` : ''; yr = y;
@@ -214,9 +232,13 @@ function historyTab(car) {
       <span class="grow"><span class="t">${esc(names.join(', '))}</span><span class="s">${niceDate(l.date)} · ${km(l.odo)} km${l.where ? ' · ' + esc(l.where) : ''}</span>
       ${res ? `<div>${res}</div>` : ''}${l.notes ? `<div class="notes">${esc(l.notes)}</div>` : ''}</span></button>`;
   }).join('') + (yr ? '</div></section>' : '');
+  return rows || `<p class="muted" style="padding:4px">${words.length ? `Nothing matches “${esc(histQuery)}”.` : 'Nothing logged yet.'}</p>`;
+}
+function historyTab(car) {
   return `<div class="filters">${[['all', 'Everything'], ['work', 'Work'], ['fuel', 'Fuel']].map(([k, l]) => `<button data-hf="${k}" aria-pressed="${histFilter === k}">${l}</button>`).join('')}
     <button data-print="${car.id}" style="margin-left:auto">${ico('print')} Service history</button></div>
-    ${rows || '<p class="muted">Nothing logged yet.</p>'}`;
+    <input type="search" id="histq" class="histq" value="${esc(histQuery)}" placeholder="Search: job, workshop, servo, part, notes" aria-label="Search history" autocomplete="off">
+    <div id="histlist">${historyRows(car)}</div>`;
 }
 
 const SPEC_SUGGEST = ['Engine oil (grade & litres)', 'Oil filter part no.', 'Air filter part no.', 'Tyre size', 'Tyre pressures (front / rear)', 'Wiper blades', 'Battery', 'Fuel tank (L)', 'Coolant type'];
@@ -354,6 +376,7 @@ function bind() {
   });
   document.addEventListener('input', e => {
     const t = e.target, r = route();
+    if (t.id === 'histq') { histQuery = t.value; const el = $('#histlist'); if (el) el.innerHTML = historyRows(carOf(r.id)); return; }
     if (t.dataset.spec !== undefined) { const car = carOf(r.id); const specs = (car.specs || []).map(s => ({ ...s })); specs[+t.dataset.spec][t.dataset.f] = t.value; car.specs = specs; saveSpecs(car.id, specs); }
     if (t.dataset.car) { const v = t.dataset.car === 'year' ? (parseInt(t.value) || null) : t.value; clearTimeout(specTimer); specTimer = setTimeout(() => save('cars', { id: r.id, [t.dataset.car]: v }), 600); }
   });

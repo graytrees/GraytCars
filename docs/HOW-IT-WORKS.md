@@ -25,6 +25,10 @@ A private, installable web app (PWA) for Nathan's cars: what's due, logging the 
 - **Catch up**: jobs with a reminder but no last-done date show a yellow "not recorded yet" bar (Garage card and Status tab). One screen takes a date and/or odometer for each; the missing half is filled in from the readings on record.
 - **Odd tanks**: a tank under 65% or over 160% of the car's usual figure (almost always a missed or short fill) stays on the chart but is kept out of the best and average figures.
 - A **Regular service** includes Engine oil by default; add more under the service's "This service includes".
+- **Monthly basics** follows the calendar month: due on the 1st, green once done any time that month. Any once-a-month check can be switched to this ("Due on the 1st of each month").
+- **By servo brand** (Fuel tab): average economy per fuel brand. Each tank counts for the servo that filled it, the fuel then driven on.
+- **History search**: every word typed must appear in the entry (job, workshop, servo, part, notes, date).
+- Any number of cars: the switch button on fill-up and log screens steps to the next car; a new car starts with Monthly basics and a Wash record.
 - History is never silently lost: edits keep the previous version; deletes go to the **Recycle bin** (Settings).
 
 ## Extras

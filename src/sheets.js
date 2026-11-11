@@ -3,7 +3,7 @@
 import { state, save, saveMany, remove, newId, onChange } from './store.js';
 import { live, carOdo, carItems, status, itemHistory, checkReading, economy, economyAlert, fuelStats, activeTrip, km, niceDate, ymd, addMonths, odoOn, dateAt } from './calc.js';
 import { $, $$, esc, ico, sheet, toast, carThumb, carStyle, lights, itemIcon, econ, econUnit, LEVEL_WORD, plate } from './ui.js';
-import { SUGGESTIONS, FILL_TAGS, tagForTrip, TRIP_TYPES } from './catalogue.js';
+import { SUGGESTIONS, FILL_TAGS, tagForTrip, TRIP_TYPES, basicsItem, careItems } from './catalogue.js';
 import { readFiles } from './simplyauto.js';
 import { detectStation } from './station.js';
 import { bookSheet } from './extras.js';
@@ -13,8 +13,9 @@ const carOf = id => state.cars.find(c => c.id === id);
 const numVal = v => { const n = parseFloat(String(v).replace(/[^0-9.]/g, '')); return isFinite(n) ? n : null; };
 
 function band(car, kind, { switchable = true, plain = false } = {}) {
-  const others = cars().filter(c => c.id !== car.id);
-  const other = others[0];
+  // the switch button steps to the next car in the garage, so it reaches every car however many there are
+  const all = cars(), at = all.findIndex(c => c.id === car.id);
+  const other = all.length > 1 ? all[(at + 1) % all.length] : null;
   return `<div class="band ${plain ? 'plain' : car.cluster || ''}">
     <div class="ph">${carThumb(car)}</div>
     <div class="who"><small>${esc(kind)}${plain ? '' : plate(car.plate)}</small><strong>${esc(car.name)}</strong></div>
@@ -382,6 +383,7 @@ export function itemSheet(itemId, carIdForNew = null) {
         <label class="field"><input id="everyKm" inputmode="numeric" value="${I.everyKm ?? ''}" placeholder="km"><span class="hint">kilometres</span></label>
         <label class="field"><input id="everyMonths" inputmode="numeric" value="${I.everyMonths ?? ''}" placeholder="months"><span class="hint">months</span></label></div>
         <span class="hint">Whichever comes first. Leave both empty to just keep a record.</span></div>
+      ${I.calendar || I.everyMonths === 1 ? `<label class="toggle"><span><b>Due on the 1st of each month</b><br><span class="muted" style="font-size:.88em">Follows the calendar month, not a month after it was last done</span></span><input type="checkbox" id="calendar" ${I.calendar ? 'checked' : ''}></label>` : ''}
       ${I.kind === 'service' ? `<div class="field"><span>This service includes</span><div class="picks">${others.map(o => `<button class="pick" data-inc="${o.id}" aria-pressed="${I.includes.includes(o.id)}">${esc(o.name)}</button>`).join('') || '<span class="muted">Add other items first.</span>'}</div></div>` : ''}
       ${I.kind === 'check' ? `<label class="field"><span>Checklist</span><textarea id="checklist" rows="4" placeholder="One point per line (optional)">${esc((I.checklist || []).join('\n'))}</textarea><span class="hint">Each line gets its own OK / Needs attention when you log it.</span></label>` : ''}
       <label class="toggle"><span><b>Record the brand each time</b><br><span class="muted" style="font-size:.88em">Shows how long each brand lasts</span></span><input type="checkbox" id="trackPart" ${I.trackPart ? 'checked' : ''}></label>
@@ -391,7 +393,7 @@ export function itemSheet(itemId, carIdForNew = null) {
     </div>
     <div class="foot">${itemId ? `<button class="btn danger" data-hide style="flex:0 0 auto">Hide</button>` : ''}<button class="btn paint" data-save>${ico('check')} Save</button></div>`);
   };
-  const read = () => { const g = id => $('#' + id, s.el); I.name = g('name').value.trim(); I.everyKm = numVal(g('everyKm').value); I.everyMonths = numVal(g('everyMonths').value); I.notes = g('notes').value.trim(); I.trackPart = g('trackPart').checked; if (g('checklist')) I.checklist = g('checklist').value.split('\n').map(x => x.trim()).filter(Boolean); };
+  const read = () => { const g = id => $('#' + id, s.el); I.name = g('name').value.trim(); I.everyKm = numVal(g('everyKm').value); I.everyMonths = numVal(g('everyMonths').value); I.notes = g('notes').value.trim(); I.trackPart = g('trackPart').checked; if (g('calendar')) I.calendar = g('calendar').checked; if (g('checklist')) I.checklist = g('checklist').value.split('\n').map(x => x.trim()).filter(Boolean); };
   s.el.onclick = async e => {
     if (e.target.closest('[data-close]')) return s.close();
     const k = e.target.closest('[data-kind]'); if (k) { read(); I.kind = k.dataset.kind; return form(); }
@@ -489,6 +491,10 @@ export function addCarSheet() {
     const id = 'c-' + g('name').toLowerCase().replace(/[^a-z0-9]+/g, '-') + (state.cars.some(c => c.id === 'c-' + g('name').toLowerCase()) ? '-' + Date.now().toString(36).slice(-3) : '');
     const odo = numVal(g('odo'));
     await save('cars', { id, name: g('name'), make: g('make'), model: g('name'), year: numVal(g('year')), colour: '#1C5BC4', order: state.cars.length, specs: [], ...(odo ? { odoReading: { odo, date: ymd() } } : {}) });
+    // a new car starts with the same basics as the others: the monthly check, a wash record and a dash style
+    await save('items', basicsItem(id));
+    for (const it of careItems({ id })) await save('items', { carId: id, includes: [], source: 'GraytCars', everyKm: null, everyMonths: null, ...it });
+    await save('cars', { id, cluster: /ranger|everest|suv|4wd|ute/i.test(g('name')) ? 'offroad' : '' });
     s.close(); location.hash = `#/car/${id}/specs`;
   };
 }

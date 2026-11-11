@@ -1,7 +1,7 @@
 // Standard jobs and checks, offered when adding to a car. Intervals are the common defaults
 // (Ford Australia Mustang schedule where one exists) — always adjustable per car.
 export const BASICS = ['Tyre pressures', 'Engine oil level', 'Brake fluid level', 'Coolant level', 'Air filter (visual check)'];
-export const basicsItem = carId => ({ id: carId.replace('c-', 'i-') + '-monthly-basics', carId, name: 'Monthly basics', kind: 'check', everyMonths: 1, everyKm: null, includes: [], checklist: BASICS, source: 'GraytCars' });
+export const basicsItem = carId => ({ id: carId.replace('c-', 'i-') + '-monthly-basics', carId, name: 'Monthly basics', kind: 'check', everyMonths: 1, calendar: true, everyKm: null, includes: [], checklist: BASICS, source: 'GraytCars' });
 
 // fuel: which cars it suits ('any' | 'petrol' | 'diesel')
 export const SUGGESTIONS = [
