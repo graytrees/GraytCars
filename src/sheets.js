@@ -1,7 +1,7 @@
 // The pop-up screens: fill-up, log work, an item's details, odometer, import, add a car.
 // Every one shows the car's photo and paint colour across the top, so it's obvious which car you're on.
 import { state, save, saveMany, remove, newId, onChange } from './store.js';
-import { live, carOdo, carItems, status, itemHistory, checkReading, economy, economyAlert, fuelStats, activeTrip, km, niceDate, ymd, addMonths } from './calc.js';
+import { live, carOdo, carItems, status, itemHistory, checkReading, economy, economyAlert, fuelStats, activeTrip, km, niceDate, ymd, addMonths, odoOn, dateAt } from './calc.js';
 import { $, $$, esc, ico, sheet, toast, carThumb, carStyle, lights, itemIcon, econ, econUnit, LEVEL_WORD, plate } from './ui.js';
 import { SUGGESTIONS, FILL_TAGS, tagForTrip, TRIP_TYPES } from './catalogue.js';
 import { readFiles } from './simplyauto.js';
@@ -133,7 +133,7 @@ function afterFill(s, carId, fillId) {
     const e = economy(carId).find(x => x.id === fillId);
     const st = fuelStats(carId), alert = economyAlert(carId, fillId);
     let cmp = '';
-    if (e && st.avgYear && !e.tag && !alert) {
+    if (e && st.avgYear && !e.tag && !alert && !e.odd) {
       const d = e.l100 - st.avgYear;
       cmp = Math.abs(d) < 0.3 ? 'Right on your 12-month average' : d < 0 ? `${Math.abs(d).toFixed(1)} L/100km better than your 12-month average` : `${d.toFixed(1)} L/100km more than your 12-month average`;
     }
@@ -142,7 +142,8 @@ function afterFill(s, carId, fillId) {
       <div class="saved">${e ? `<div class="big">${econ(e.l100)}<small> ${econUnit()}</small></div><div class="muted">${km(e.dist)} km on ${e.litres.toFixed(1)} L</div>${cmp ? `<div class="cmp">${esc(cmp)}</div>` : ''}`
         : `<div class="big" style="font-size:40px">${ico('check')} Saved</div><div class="muted">Economy shows after the next full tank.</div>`}</div>
       <div class="form">
-        ${alert ? `<div class="warnbox"><h3>${alert.pct}% thirstier than usual</h3><p style="margin:0">${econ(alert.l100)} against your normal ${econ(alert.avg)} ${econUnit()}. Worth a look: tyre pressures, a dragging brake, extra load or roof gear, or lots of short trips. If it keeps happening, it's time for a check-up.</p></div>` : ''}
+        ${e?.odd ? `<div class="warnbox"><h3>Odd tank</h3><p style="margin:0">${econ(e.l100)} is well ${e.odd === 'low' ? 'under' : 'over'} the ${esc(car.name)}'s usual ${econ(st.avgYear)} ${econUnit()}, so it's kept out of your best and average figures. Usually a fill-up that wasn't logged, or a tank that wasn't filled to the top. If you missed one, open this fill-up and turn on “I missed logging a fill before this one”.</p></div>` : ''}
+        ${alert && !e?.odd ? `<div class="warnbox"><h3>${alert.pct}% thirstier than usual</h3><p style="margin:0">${econ(alert.l100)} against your normal ${econ(alert.avg)} ${econUnit()}. Worth a look: tyre pressures, a dragging brake, extra load or roof gear, or lots of short trips. If it keeps happening, it's time for a check-up.</p></div>` : ''}
         ${e?.tag ? `<p class="muted" style="margin:0">Tagged ${esc(FILL_TAGS[e.tag].toLowerCase())}, so it's kept out of your normal average.${e.tag === 'track' ? ' Ford advises an oil change after each track weekend.' : ''}</p>` : ''}
         ${due.length ? `<h3 class="section-title" style="margin:6px 0 0">While you're at the servo</h3>
           <div class="panel" style="padding:4px 10px">${due.map(i => quickRow(i)).join('')}</div>`
@@ -307,6 +308,47 @@ function partLife(l, next) {
   return `${km(now.odo - l.odo)} km so far (${span(l.date, ymd())})`;
 }
 
+/* =============== CATCH UP: last-done dates for jobs that have never been recorded =============== */
+const everyText = x => [x.everyKm && km(x.everyKm) + ' km', x.everyMonths && (x.everyMonths % 12 ? x.everyMonths + ' months' : (x.everyMonths / 12 === 1 ? '12 months' : x.everyMonths / 12 + ' years'))].filter(Boolean).join(' or ');
+/** Jobs and checks with a reminder set but nothing to count from */
+export const notRecorded = carId => [...carItems(carId), ...carItems(carId, { care: true })].filter(i => i.st.level === 'unknown');
+export function catchUpSheet(carId) {
+  const car = carOf(carId);
+  const rows = notRecorded(carId);
+  const now = carOdo(carId);
+  const quick = [{ label: 'Today', date: ymd(), odo: now.odo || '' }, ...visits(carId).slice(0, 2).map(v => ({ label: `${niceDate(v.date)} · ${v.where}`, date: v.date, odo: v.odo }))];
+  const s = sheet(`${band(car, 'Catch up', { switchable: false })}
+    <div class="form">
+      <p class="muted" style="margin:0">These have a reminder but nothing to count from yet. Enter roughly when each was last done: a date, the odometer, or both. Leave a row empty to skip it for now.</p>
+      ${rows.map(i => `<div class="catch" data-row="${i.id}">
+        <div class="hd"><span class="badge">${ico(itemIcon(i))}</span><b>${esc(i.name)}</b><span class="muted">every ${everyText(i)}</span></div>
+        <div class="pair"><label class="field"><input type="date" data-cd max="${ymd()}" aria-label="${esc(i.name)}: date last done"><span class="hint">Date last done</span></label>
+          <label class="field"><input inputmode="numeric" data-co placeholder="km" aria-label="${esc(i.name)}: odometer when last done"><span class="hint">Odometer then</span></label></div>
+        <div class="quick">${quick.map((q, n) => `<button class="chipbtn" data-cq="${n}">${esc(q.label)}</button>`).join('')}</div></div>`).join('')}
+      <p class="err" id="err" role="alert"></p>
+    </div>
+    <div class="foot"><button class="btn paint" data-save>${ico('check')} Save</button></div>`, { full: true, style: carStyle(car), label: 'Catch up' });
+  s.el.onclick = async e => {
+    if (e.target.closest('[data-close]')) return s.close();
+    const q = e.target.closest('[data-cq]');
+    if (q) { const row = q.closest('.catch'), v = quick[+q.dataset.cq]; $('[data-cd]', row).value = v.date; $('[data-co]', row).value = v.odo; return; }
+    if (!e.target.closest('[data-save]')) return;
+    const todo = [];
+    for (const row of $$('.catch', s.el)) {
+      let date = $('[data-cd]', row).value || null, odo = numVal($('[data-co]', row).value);
+      if (!date && odo == null) continue;
+      if (odo != null && now.odo && odo > now.odo + 1) return ($('#err', s.el).textContent = `${km(odo)} km is more than the ${car.name} has done (${km(now.odo)} km).`);
+      // fill in whichever half is missing from the readings on record, so both km and time reminders work
+      if (odo == null) odo = odoOn(carId, date);
+      if (!date) date = dateAt(carId, odo);
+      todo.push({ id: row.dataset.row, baseline: { odo: odo ?? null, date, src: 'catchup' } });
+    }
+    if (!todo.length) return ($('#err', s.el).textContent = 'Enter a date or odometer for at least one job.');
+    for (const t of todo) await save('items', t);
+    toast(`${todo.length} job${todo.length === 1 ? '' : 's'} updated`); s.close();
+  };
+}
+
 /* =============== ONE ITEM: status, settings, history =============== */
 export function itemSheet(itemId, carIdForNew = null) {
   const it0 = itemId ? state.items.find(x => x.id === itemId) : { carId: carIdForNew, name: '', kind: 'job', everyKm: null, everyMonths: null, includes: [], notes: '' };
@@ -329,7 +371,7 @@ export function itemSheet(itemId, carIdForNew = null) {
       ${st ? `<div class="panel" style="padding:14px 16px;margin:0"><div class="item ${st.level}" style="padding:0">
           <span class="badge">${ico(itemIcon(I))}</span><span class="nm">${LEVEL_WORD[st.level]}</span><span></span>
           <span class="tx" style="font-size:1em">${esc(st.text)}</span>${lights(st)}</div>
-          ${st.last ? `<p class="muted" style="margin:10px 0 0;font-size:.92em">Last done ${st.last.date ? niceDate(st.last.date) : ''}${st.last.odo ? ' at ' + km(st.last.odo) + ' km' : ''}${st.last.baseline ? ' (from Simply Auto)' : ''}${st.last.result === 'attention' ? ' · needed attention' : ''}</p>` : ''}
+          ${st.last ? `<p class="muted" style="margin:10px 0 0;font-size:.92em">Last done ${st.last.date ? niceDate(st.last.date) : ''}${st.last.odo ? ' at ' + km(st.last.odo) + ' km' : ''}${st.last.baseline ? (it0.baseline?.src === 'catchup' ? ' (entered by hand)' : ' (from Simply Auto)') : ''}${st.last.result === 'attention' ? ' · needed attention' : ''}</p>` : ''}
           <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn paint small" data-logit>${ico('check')} ${I.kind === 'check' ? 'Log a check' : 'Log it done'}</button>${I.group !== 'care' ? `<button class="btn ghost small" data-book>${ico('phone')} Book it</button>` : ''}</div></div>` : ''}
       ${!itemId ? suggestions() : ''}
       <label class="field"><span>Name</span><input id="name" value="${esc(I.name)}" placeholder="e.g. Coolant flush"></label>

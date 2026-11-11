@@ -58,6 +58,17 @@ export function kmPerDay(carId) {
   return days > 0 && dist > 0 ? dist / days : null;
 }
 
+/** Best guess at the odometer on a given day, and the day a given odometer was reached (from the readings on record). */
+export function odoOn(carId, date) {
+  const r = readings(carId); if (!r.length) return null;
+  const before = r.filter(x => x.date <= date);
+  return before.length ? Math.max(...before.map(x => x.odo)) : null;
+}
+export function dateAt(carId, odo) {
+  const hit = readings(carId).filter(x => x.odo >= odo).sort((a, b) => a.odo - b.odo)[0];
+  return hit ? hit.date : null;
+}
+
 /* ---------- maintenance status ---------- */
 export function itemHistory(item) {
   return live(state.logs).filter(l => l.items?.includes(item.id)).sort((a, b) => b.date.localeCompare(a.date) || b.odo - a.odo);
@@ -150,12 +161,19 @@ export function economy(carId) {
       prevFull = x; acc = 0; broken = false;
     }
   }
+  // A tank far from this car's usual figure is almost always a missed or short fill, not real economy.
+  // Mark it so it stays on the chart but out of the best and average figures.
+  const usual = out.filter(x => !x.tag).map(x => x.l100).sort((a, b) => a - b);
+  if (usual.length >= 6) {
+    const mid = usual[Math.floor(usual.length / 2)];
+    for (const x of out) if (!x.tag && (x.l100 < mid * 0.65 || x.l100 > mid * 1.6)) x.odd = x.l100 < mid ? 'low' : 'high';
+  }
   return out;
 }
 export function fuelStats(carId) {
   const e = economy(carId);
   const from = ymd(new Date(today() - 365 * DAY));
-  const normal = e.filter(x => !x.tag);   // towing / 4WD / track tanks are kept out of the averages
+  const normal = e.filter(x => !x.tag && !x.odd);   // towing / 4WD / track tanks and odd (missed-fill) tanks are kept out of the averages
   const yr = normal.filter(x => x.date >= from);
   const avg = list => { const L = list.reduce((s, x) => s + x.litres, 0), D = list.reduce((s, x) => s + x.dist, 0); return D ? L / D * 100 : null; };
   const fills = live(state.fills).filter(x => x.carId === carId);
@@ -200,7 +218,7 @@ export function economyAlert(carId, fillId) {
   const e = economy(carId), me = e.find(x => x.id === fillId);
   if (!me || me.tag) return null;
   const from = ymd(new Date(parseDay(me.date) - 365 * DAY));
-  const base = e.filter(x => !x.tag && x.id !== fillId && x.date >= from && x.date <= me.date);
+  const base = e.filter(x => !x.tag && !x.odd && x.id !== fillId && x.date >= from && x.date <= me.date);
   if (base.length < 4) return null;
   const avg = base.reduce((s, x) => s + x.litres, 0) / base.reduce((s, x) => s + x.dist, 0) * 100;
   const pct = (me.l100 - avg) / avg * 100;

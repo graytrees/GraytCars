@@ -3,7 +3,7 @@ import { state, onChange, save, restore, saveMeta, allReady } from './store.js';
 import { live, carOdo, carItems, carLevel, fuelStats, economy, km, niceDate, monthYear, ymd, tyreStatus, currentTyres, activeTrip, upcomingTrips, parseDay, today, DAY } from './calc.js';
 import { $, $$, esc, ico, prefs, setPref, applyPrefs, carArt, carStyle, drums, rollDrums, setIgnite, lights, itemIcon, econ, econUnit, toast, carPhoto, SWATCHES, LEVEL_WORD, closeAll, plate } from './ui.js';
 import { runSetup } from './setup.js';
-import { fillSheet, logSheet, washSheet, itemSheet, odoSheet, importSheet, addCarSheet } from './sheets.js';
+import { fillSheet, logSheet, washSheet, itemSheet, odoSheet, importSheet, addCarSheet, catchUpSheet, notRecorded } from './sheets.js';
 import { tripSheet, modSheet, modHints, tyreSheet, workshopSheet, workshops, contactBtns } from './extras.js';
 import { TRIP_TYPES, MOD_CATS, FILL_TAGS } from './catalogue.js';
 import { calendarConnected, tripEvents } from './calendar.js';
@@ -106,9 +106,12 @@ function carCard(car) {
       ${trip ? `<p class="careline">${ico('flag')}<span><b>${esc(trip.name)}</b> – fill-ups tagged ${esc(FILL_TAGS[{ beach: 'offroad', '4wd': 'offroad', towing: 'towing', track: 'track' }[trip.type] || ''].toLowerCase())}</span></p>` : ''}
       <div class="items">${top.map(i => itemRow(i)).join('')}</div>
       ${items.length > 3 ? `<a class="more" href="#/car/${car.id}/status">All ${items.length} jobs ${ico('chev')}</a>` : ''}
+      ${catchUpLine(car.id)}
       ${actionBtns(car.id)}
     </div></article>`;
 }
+/** Jobs with a reminder but no last-done date can't show when they're due – one tap to fill them all in. */
+const catchUpLine = id => { const n = notRecorded(id).length; return n ? `<button class="catchup" data-catchup="${id}">${ico('edit')}<span><b>${plural(n, 'job')} not recorded yet</b> – enter when ${n === 1 ? 'it was' : 'they were'} last done</span>${ico('chev')}</button>` : ''; };
 const actionBtns = id => `<div class="btns three"><button class="btn paint" data-fill="${id}">${ico('fuel')} Fill up</button><button class="btn ghost" data-wash="${id}">${ico('spray')} Wash</button><button class="btn ghost" data-log="${id}">${ico('wrench')} Log</button></div>`;
 /** "Washed 12 days ago · Coating top-up due in 3 weeks" */
 function careLine(car) {
@@ -151,6 +154,7 @@ function statusTab(car) {
   const hidden = live(state.items).filter(i => i.carId === car.id && i.hidden);
   return `<div class="split"><section class="panel"><h3>Jobs and checks</h3>
       <p class="sub muted">Green is fine, yellow is coming due, red is due now. Each bar fills by distance or time, whichever is closer.</p>
+      ${catchUpLine(car.id)}
       <div class="items">${tracked.map(i => itemRow(i, true)).join('') || '<p class="muted">Nothing with a reminder yet.</p>'}</div></section>
     <div>${carePanel(car)}${tyrePanel(car, true)}${records.length ? `<section class="panel"><h3>Records only</h3><p class="sub muted">No reminder set. Tap one to add an interval.</p><div class="items">${records.map(i => itemRow(i)).join('')}</div></section>` : ''}
       <section class="panel" style="padding:14px 16px"><button class="btn ghost small" data-newitem="${car.id}">${ico('plus')} Add a job or check</button>
@@ -189,7 +193,7 @@ function fuelTab(car) {
 const fillRow = (f, e) => `<button class="row" data-editfill="${f.id}"><span class="ic fuel">${ico('fuel')}</span>
   <span class="grow"><span class="t">${f.station ? esc(f.station) : (f.litres || 0).toFixed(1) + ' L'}${f.full ? '' : ' · part fill'}</span>
   <span class="s">${niceDate(f.date)} · ${km(f.odo)} km${f.station ? ' · ' + (f.litres || 0).toFixed(1) + ' L' : ''}</span></span>
-  <span class="r">${e ? econ(e.l100) + `<small class="muted"> ${econUnit()}</small>` : ''}${f.tag ? `<br><span class="flag ok" style="margin:0">${esc(FILL_TAGS[f.tag])}</span>` : ''}</span></button>`;
+  <span class="r">${e ? econ(e.l100) + `<small class="muted"> ${econUnit()}</small>` : ''}${f.tag ? `<br><span class="flag ok" style="margin:0">${esc(FILL_TAGS[f.tag])}</span>` : e?.odd ? `<br><span class="flag odd" style="margin:0">Odd tank</span>` : ''}</span></button>`;
 
 let histFilter = 'all';
 function historyTab(car) {
@@ -308,6 +312,7 @@ function bind() {
     if (d.fill) return fillSheet(d.fill);
     if (d.log) return logSheet(d.log);
     if (d.wash) return washSheet(d.wash);
+    if (d.catchup) return catchUpSheet(d.catchup);
     if (d.trip) return tripSheet(d.trip);
     if (d.newtrip !== undefined) return tripSheet();
     if (d.plantrip) { const ev = calTrips.find(x => x.id === d.plantrip); return tripSheet(null, { name: ev.title, start: ev.start, end: ev.end, calEventId: ev.id, type: /track/i.test(ev.title) ? 'track' : /tow|caravan/i.test(ev.title) ? 'towing' : /beach|rainbow|k'?gari|fraser|moreton|bribie|double island/i.test(ev.title + ev.location) ? 'beach' : '4wd' }); }

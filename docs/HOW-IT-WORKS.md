@@ -22,6 +22,9 @@ A private, installable web app (PWA) for Nathan's cars: what's due, logging the 
 - **Estimated due date** uses how far the car has actually travelled over the last year.
 - **Wrong-car check**: a reading lower than the car's last one, a jump bigger than it normally travels, or more litres than it has ever taken asks "Is this the Mustang?" with both cars shown, and one tap moves it to the other car.
 - **Fuel economy** is worked out per full tank (part fills are added into the next full one), in L/100km or km/L.
+- **Catch up**: jobs with a reminder but no last-done date show a yellow "not recorded yet" bar (Garage card and Status tab). One screen takes a date and/or odometer for each; the missing half is filled in from the readings on record.
+- **Odd tanks**: a tank under 65% or over 160% of the car's usual figure (almost always a missed or short fill) stays on the chart but is kept out of the best and average figures.
+- A **Regular service** includes Engine oil by default; add more under the service's "This service includes".
 - History is never silently lost: edits keep the previous version; deletes go to the **Recycle bin** (Settings).
 
 ## Extras

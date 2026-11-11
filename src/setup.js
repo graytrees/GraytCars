@@ -1,7 +1,7 @@
 // One-off upgrades to Nathan's records, each run once (tracked in meta/setup).
 // Only adds or fills in — never removes history. Items he's hidden or renamed are left alone.
 import { state, save, saveMeta } from './store.js';
-import { live } from './calc.js';
+import { live, itemHistory } from './calc.js';
 import { basicsItem, BASICS, careItems, WORKSHOPS } from './catalogue.js';
 
 const idFor = (carId, name) => carId.replace('c-', 'i-') + '-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -70,6 +70,25 @@ const STEPS = {
       if (!c.cluster) save('cars', { id: c.id, cluster: /everest|ranger|suv|4wd/i.test(c.name + (c.shape || '')) ? 'offroad' : 'track' });
     }
     if (!state.meta.workshops?.list?.length) saveMeta('workshops', { list: WORKSHOPS });
+  },
+  // v4 (Nov 2026): a Regular service now ticks Engine oil with it (and the latest service is credited to it);
+  // every car has an Engine oil record; the Everest's spare drive belt is a part on the shelf, not a job.
+  4() {
+    for (const c of live(state.cars)) {
+      const svc = live(state.items).find(i => i.carId === c.id && i.kind === 'service' && /service/i.test(i.name));
+      if (!svc) continue;
+      const oil = findItem(c.id, /^engine oil/i), oilId = oil?.id || idFor(c.id, 'Engine oil');
+      if (!oil) save('items', { id: oilId, carId: c.id, name: 'Engine oil', kind: 'job', includes: [], source: 'GraytCars', everyKm: null, everyMonths: null });
+      if (!(svc.includes || []).includes(oilId)) save('items', { id: svc.id, includes: [...(svc.includes || []), oilId] });
+      const lastSvc = itemHistory(svc)[0];
+      if (lastSvc && !(lastSvc.items || []).includes(oilId) && !/no servic/i.test(lastSvc.notes || '')) save('logs', { id: lastSvc.id, items: [...lastSvc.items, oilId] });
+    }
+    const E = state.cars.find(c => c.id === 'c-everest' && !c.deleted);
+    if (E) {
+      const belt = findItem(E.id, /spare drive belt/i);
+      if (belt && !belt.hidden && !belt.everyKm && !belt.everyMonths) save('items', { id: belt.id, hidden: true });
+      if (!(E.specs || []).some(s => /drive belt/i.test(s.label))) save('cars', { id: E.id, specs: [...(E.specs || []), { label: 'Spare drive belt part no.', value: 'MB3Z8620E', note: 'Jefferson Ford, Nov 2024 – spare on the shelf' }] });
+    }
   },
 };
 
